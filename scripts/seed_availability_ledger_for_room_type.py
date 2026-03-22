@@ -59,7 +59,7 @@ async def main() -> int:
     async with factory() as session:
         async with session.begin():
             await session.execute(
-                text("SET LOCAL app.tenant_id = :tid"),
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
             )
             existing = await _existing_ledger_rows(session, tenant_id, room_type_id)

@@ -161,3 +161,16 @@ async def create_booking(
         total_amount=total,
         nights=[NightlyPriceLine(date=d, price=p) for d, p in per_night],
     )
+
+
+async def list_bookings(
+    session: AsyncSession,
+    tenant_id: UUID,
+) -> list[Booking]:
+    stmt = (
+        select(Booking)
+        .where(Booking.tenant_id == tenant_id)
+        .order_by(Booking.id.asc())
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())

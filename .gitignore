@@ -6,6 +6,26 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .env
+.env.local
+.env.*.local
 *.egg-info/
 dist/
 build/
+
+# OS / IDE (local only)
+.DS_Store
+.idea/
+*.swp
+*.swo
+
+# Coverage / test artifacts
+.coverage
+htmlcov/
+*.cover
+
+# Logs & local DB dumps
+*.log
+*.sqlite3
+
+# Cursor workspace metadata (rules stay in .cursorrules at repo root)
+.cursor/

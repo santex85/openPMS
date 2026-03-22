@@ -32,7 +32,7 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     async with factory() as session:
         async with session.begin():
             await session.execute(
-                text("SET LOCAL app.tenant_id = :tid"),
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
             )
             yield session

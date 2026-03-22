@@ -48,3 +48,15 @@ class BookingCreateResponse(BaseModel):
     guest_id: UUID
     total_amount: Decimal
     nights: list[NightlyPriceLine]
+
+
+class BookingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    property_id: UUID
+    guest_id: UUID
+    status: str
+    source: str
+    total_amount: Decimal
