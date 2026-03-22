@@ -1,3 +1,10 @@
 """Import model modules here so Alembic autogenerate discovers metadata."""
 
-from app.models.mt_rls_smoke import MtRlsSmoke  # noqa: F401
+from app.models.bookings import (  # noqa: F401
+    Booking,
+    BookingLine,
+    FolioTransaction,
+    Guest,
+)
+from app.models.core import Property, Room, RoomType, Tenant  # noqa: F401
+from app.models.rates import AvailabilityLedger, Rate, RatePlan  # noqa: F401
