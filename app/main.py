@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import bookings, inventory, properties, room_types
 from app.core.config import get_settings
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     application = FastAPI(
         title="OpenPMS",
         description="API-first Property Management System",
@@ -31,6 +33,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     application.add_middleware(TenantJwtMiddleware)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins(),
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=False,
+    )
 
     application.include_router(
         properties.router,

@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD:-openpms}@db:5432/${POSTGRES_DB:-openpms}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-in-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     depends_on:
       db:
         condition: service_healthy

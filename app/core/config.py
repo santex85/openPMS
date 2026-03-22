@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173",
+        description="Comma-separated browser origins allowed for CORS (e.g. Vite dev server).",
+    )
+
+    def cors_allowed_origins(self) -> list[str]:
+        return [part.strip() for part in self.cors_origins.split(",") if part.strip()]
 
 
 @lru_cache
