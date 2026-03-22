@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.routes import inventory, properties, room_types
+from app.api.routes import bookings, inventory, properties, room_types
 from app.core.config import get_settings
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.tenant_jwt import TenantJwtMiddleware
@@ -43,6 +43,11 @@ def create_app() -> FastAPI:
         tags=["room-types"],
     )
     application.include_router(inventory.router)
+    application.include_router(
+        bookings.router,
+        prefix="/bookings",
+        tags=["bookings"],
+    )
 
     @application.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
