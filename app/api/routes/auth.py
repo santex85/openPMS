@@ -3,9 +3,10 @@
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import text
 
+from app.api.cookies_auth import attach_refresh_cookie, clear_refresh_cookie
 from app.api.deps import (
     SessionDep,
     TenantIdDep,
@@ -15,16 +16,17 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.schemas.auth import (
+    AccessTokenResponse,
     AuthInviteRequest,
     AuthInviteResponse,
+    AuthLoginPublicResponse,
     AuthLoginRequest,
-    AuthLoginResponse,
+    AuthRegisterPublicResponse,
     AuthRefreshRequest,
     AuthRegisterRequest,
-    AuthRegisterResponse,
-    TokenPairResponse,
     UserRead,
 )
+from app.services.audit_service import record_audit
 from app.services.auth_service import (
     AuthServiceError,
     get_user,
@@ -45,10 +47,15 @@ InviteManagerDep = Annotated[
 
 @router.post(
     "/register",
-    response_model=AuthRegisterResponse,
+    response_model=AuthRegisterPublicResponse,
     status_code=status.HTTP_201_CREATED,
+    response_model_exclude_none=True,
 )
-async def post_register(request: Request, body: AuthRegisterRequest) -> AuthRegisterResponse:
+async def post_register(
+    request: Request,
+    response: Response,
+    body: AuthRegisterRequest,
+) -> AuthRegisterPublicResponse:
     settings = get_settings()
     factory = request.app.state.async_session_factory
     tenant_id = uuid4()
@@ -60,16 +67,34 @@ async def post_register(request: Request, body: AuthRegisterRequest) -> AuthRegi
                 ),
                 {"tid": str(tenant_id)},
             )
-            return await register_tenant_owner(
-                session,
-                settings,
-                body,
-                tenant_id=tenant_id,
-            )
+            try:
+                full = await register_tenant_owner(
+                    session,
+                    settings,
+                    body,
+                    tenant_id=tenant_id,
+                )
+            except AuthServiceError as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=exc.detail,
+                ) from exc
+    public = AuthRegisterPublicResponse(
+        access_token=full.access_token,
+        token_type=full.token_type,
+        tenant_id=full.tenant_id,
+        user=full.user,
+    )
+    attach_refresh_cookie(response, settings, full.refresh_token)
+    return public
 
 
-@router.post("/login", response_model=AuthLoginResponse)
-async def post_login(request: Request, body: AuthLoginRequest) -> AuthLoginResponse:
+@router.post("/login", response_model=AuthLoginPublicResponse)
+async def post_login(
+    request: Request,
+    response: Response,
+    body: AuthLoginRequest,
+) -> AuthLoginPublicResponse:
     settings = get_settings()
     factory = request.app.state.async_session_factory
     async with factory() as session:
@@ -81,17 +106,37 @@ async def post_login(request: Request, body: AuthLoginRequest) -> AuthLoginRespo
                 {"tid": str(body.tenant_id)},
             )
             try:
-                return await login_user(session, settings, body)
+                full = await login_user(session, settings, body)
             except AuthServiceError as exc:
                 raise HTTPException(
                     status_code=exc.status_code,
                     detail=exc.detail,
                 ) from exc
+    public = AuthLoginPublicResponse(
+        access_token=full.access_token,
+        token_type=full.token_type,
+        user=full.user,
+    )
+    attach_refresh_cookie(response, settings, full.refresh_token)
+    return public
 
 
-@router.post("/refresh", response_model=TokenPairResponse)
-async def post_refresh(request: Request, body: AuthRefreshRequest) -> TokenPairResponse:
+@router.post("/refresh", response_model=AccessTokenResponse)
+async def post_refresh(
+    request: Request,
+    response: Response,
+    body: AuthRefreshRequest,
+) -> AccessTokenResponse:
     settings = get_settings()
+    raw = body.refresh_token
+    if raw is None or not str(raw).strip():
+        raw = request.cookies.get(settings.refresh_cookie_name)
+    if raw is None or not str(raw).strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing refresh token",
+        )
+    body_filled = AuthRefreshRequest(tenant_id=body.tenant_id, refresh_token=str(raw).strip())
     factory = request.app.state.async_session_factory
     async with factory() as session:
         async with session.begin():
@@ -102,12 +147,15 @@ async def post_refresh(request: Request, body: AuthRefreshRequest) -> TokenPairR
                 {"tid": str(body.tenant_id)},
             )
             try:
-                return await refresh_session(session, settings, body)
+                full = await refresh_session(session, settings, body_filled)
             except AuthServiceError as exc:
+                clear_refresh_cookie(response, settings)
                 raise HTTPException(
                     status_code=exc.status_code,
                     detail=exc.detail,
                 ) from exc
+    attach_refresh_cookie(response, settings, full.refresh_token)
+    return AccessTokenResponse(access_token=full.access_token, token_type=full.token_type)
 
 
 @router.get("/me", response_model=UserRead)
@@ -137,9 +185,18 @@ async def post_invite(
     body: AuthInviteRequest,
 ) -> AuthInviteResponse:
     try:
-        return await invite_user(session, tenant_id, body)
+        out = await invite_user(session, tenant_id, body)
     except AuthServiceError as exc:
         raise HTTPException(
             status_code=exc.status_code,
             detail=exc.detail,
         ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="user.invite",
+        entity_type="user",
+        entity_id=out.user.id,
+        new_values={"email": out.user.email, "role": out.user.role},
+    )
+    return out

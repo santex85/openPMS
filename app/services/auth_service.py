@@ -151,7 +151,10 @@ async def refresh_session(
     settings: Settings,
     body: AuthRefreshRequest,
 ) -> TokenPairResponse:
-    digest = hash_refresh_token(body.refresh_token.strip())
+    raw = body.refresh_token
+    if raw is None or not raw.strip():
+        raise AuthServiceError("missing refresh token", status_code=401)
+    digest = hash_refresh_token(raw.strip())
     now = datetime.now(UTC)
     row = await session.scalar(
         select(RefreshToken).where(

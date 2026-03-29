@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATES_READ, RATES_WRITE
 from app.schemas.nightly_rates import BulkRatesPutRequest, BulkRatesPutResponse, RateRead
+from app.services.audit_service import record_audit
 from app.services.rates_admin_service import RatesServiceError, bulk_upsert_rates, list_rates_for_period
 from app.services.webhook_runner import run_rate_updated_webhooks
 
@@ -64,6 +65,13 @@ async def put_rates_bulk(
         n, updates = await bulk_upsert_rates(session, tenant_id, body)
     except RatesServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="rates.bulk_upsert",
+        entity_type="rate",
+        new_values={"rows_upserted": n},
+    )
     if updates:
         factory = request.app.state.async_session_factory
         background_tasks.add_task(

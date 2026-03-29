@@ -71,7 +71,7 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_allowed_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
-        allow_credentials=False,
+        allow_credentials=True,
     )
 
     application.include_router(

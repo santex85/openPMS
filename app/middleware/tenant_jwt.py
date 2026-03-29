@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.core.audit_context import bind_audit_context, reset_audit_context
 from app.core.config import get_settings
 from app.models.auth.api_key import ApiKey
 from app.schemas.auth import UnauthorizedResponse
@@ -34,6 +35,29 @@ def _is_auth_exempt_path(path: str) -> bool:
     if path.startswith("/docs/") or path.startswith("/redoc/"):
         return True
     return False
+
+
+def _client_ip(request: Request) -> str | None:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        first = fwd.split(",")[0].strip()
+        return first or None
+    if request.client:
+        return request.client.host
+    return None
+
+
+async def _call_with_audit(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    uid = getattr(request.state, "user_id", None)
+    user_id = uid if isinstance(uid, UUID) else None
+    tok = bind_audit_context(user_id=user_id, ip_address=_client_ip(request))
+    try:
+        return await call_next(request)
+    finally:
+        reset_audit_context(tok)
 
 
 async def _authenticate_jwt(request: Request) -> bool:
@@ -150,7 +174,7 @@ class TenantJwtMiddleware(BaseHTTPMiddleware):
                 return _unauthorized_response("Invalid or expired token")
             if not ok:
                 return _unauthorized_response("Missing bearer token")
-            return await call_next(request)
+            return await _call_with_audit(request, call_next)
 
         factory = request.app.state.async_session_factory
         async with factory() as session:
@@ -159,7 +183,7 @@ class TenantJwtMiddleware(BaseHTTPMiddleware):
             except ValueError:
                 return _unauthorized_response("Invalid API key")
             if ok:
-                return await call_next(request)
+                return await _call_with_audit(request, call_next)
 
         return _unauthorized_response(
             "Authenticate with Authorization: Bearer <JWT> or X-API-Key",

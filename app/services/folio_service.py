@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bookings.booking import Booking
 from app.models.bookings.folio_transaction import FolioTransaction
+from app.services.audit_service import record_audit
 from app.schemas.folio import CHARGE_CATEGORIES, FolioPostRequest
 
 
@@ -127,6 +128,19 @@ async def add_folio_entry(
     )
     session.add(tx)
     await session.flush()
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="folio.post",
+        entity_type="folio_transaction",
+        entity_id=tx.id,
+        new_values={
+            "booking_id": str(booking_id),
+            "entry_type": body.entry_type,
+            "amount": str(stored_amount),
+            "category": body.category,
+        },
+    )
     return tx
 
 
@@ -162,4 +176,13 @@ async def reverse_folio_transaction(
     )
     session.add(rev)
     await session.flush()
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="folio.reverse",
+        entity_type="folio_transaction",
+        entity_id=rev.id,
+        old_values={"reversed_transaction_id": str(transaction_id)},
+        new_values={"amount": str(rev.amount)},
+    )
     return rev

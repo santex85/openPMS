@@ -29,7 +29,11 @@ class AuthLoginRequest(BaseModel):
 
 class AuthRefreshRequest(BaseModel):
     tenant_id: UUID
-    refresh_token: str = Field(..., min_length=10, max_length=4096)
+    refresh_token: str | None = Field(
+        default=None,
+        max_length=4096,
+        description="Omit when using HttpOnly cookie set by POST /auth/login or /auth/refresh.",
+    )
     model_config = ConfigDict(extra="forbid")
 
 
@@ -57,12 +61,32 @@ class TokenPairResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class AccessTokenResponse(BaseModel):
+    """Returned by /auth/refresh; new refresh is only in HttpOnly cookie."""
+
+    access_token: str
+    token_type: str = "bearer"
+
+
 class AuthRegisterResponse(TokenPairResponse):
     tenant_id: UUID
     user: UserRead
 
 
+class AuthRegisterPublicResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    tenant_id: UUID
+    user: UserRead
+
+
 class AuthLoginResponse(TokenPairResponse):
+    user: UserRead
+
+
+class AuthLoginPublicResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
     user: UserRead
 
 

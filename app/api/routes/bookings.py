@@ -46,6 +46,7 @@ from app.services.folio_service import (
     reverse_folio_transaction,
 )
 from app.services.pricing_service import MissingRatesError
+from app.services.audit_service import record_audit
 from app.services.webhook_runner import (
     booking_quick_snapshot,
     emit_availability_for_dates,
@@ -53,6 +54,16 @@ from app.services.webhook_runner import (
     run_booking_created_webhook,
     run_booking_patch_webhooks,
 )
+
+def _audit_patch_values(data: dict) -> dict:
+    out: dict[str, object] = {}
+    for k, v in data.items():
+        if hasattr(v, "isoformat"):
+            out[k] = v.isoformat()
+        else:
+            out[k] = str(v)
+    return out
+
 
 router = APIRouter()
 
@@ -281,6 +292,14 @@ async def patch_booking_by_id(
                 all_dates,
             )
 
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="booking.patch",
+        entity_type="booking",
+        entity_id=booking_id,
+        new_values=_audit_patch_values(patch_data),
+    )
     if warn_balance is not None:
         payload = BookingCheckoutBalanceWarning(balance=warn_balance).model_dump(
             mode="json",
@@ -324,6 +343,19 @@ async def post_booking(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="booking.create",
+        entity_type="booking",
+        entity_id=out.booking_id,
+        new_values={
+            "property_id": str(body.property_id),
+            "check_in": body.check_in.isoformat(),
+            "check_out": body.check_out.isoformat(),
+            "status": body.status,
+        },
+    )
     factory = request.app.state.async_session_factory
     background_tasks.add_task(
         run_booking_created_webhook,

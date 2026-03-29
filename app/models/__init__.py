@@ -16,3 +16,4 @@ from app.models.core import (  # noqa: F401
 )
 from app.models.integrations import WebhookDeliveryLog, WebhookSubscription  # noqa: F401
 from app.models.rates import AvailabilityLedger, Rate, RatePlan  # noqa: F401
+from app.models.audit.audit_log import AuditLog  # noqa: F401
