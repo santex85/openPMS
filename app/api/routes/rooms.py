@@ -6,15 +6,24 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles
+from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
 from app.schemas.rooms import RoomCreate, RoomPatch, RoomRead
 from app.services.room_list_service import property_belongs_to_tenant
 from app.services.room_service import RoomServiceError, create_room, get_room, list_rooms, patch_room, soft_delete_room
 
 router = APIRouter()
 
-RoomReadRolesDep = Annotated[None, Depends(require_roles("owner", "manager", "viewer", "receptionist", "housekeeper"))]
-RoomWriteRolesDep = Annotated[None, Depends(require_roles("owner", "manager"))]
+RoomReadRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager", "viewer", "receptionist", "housekeeper")),
+    Depends(require_scopes(ROOMS_READ)),
+]
+RoomWriteRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager")),
+    Depends(require_scopes(ROOMS_WRITE)),
+]
 
 
 async def _ensure_property(

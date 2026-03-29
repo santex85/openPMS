@@ -6,7 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantIdDep, get_db, require_roles
+from app.api.deps import TenantIdDep, get_db, require_roles, require_scopes
+from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.property import PropertyCreate, PropertyRead
 from app.services import property_service
 
@@ -17,10 +18,12 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
 PropertyReadRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+    Depends(require_scopes(PROPERTIES_READ)),
 ]
 PropertyWriteRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager")),
+    Depends(require_scopes(PROPERTIES_WRITE)),
 ]
 
 

@@ -5,7 +5,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles
+from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.core.api_scopes import RATE_PLANS_READ, RATE_PLANS_WRITE
 from app.schemas.rate_plan import RatePlanCreate, RatePlanPatch, RatePlanRead
 from app.services.rate_plan_service import RatePlanServiceError, create_rate_plan, delete_rate_plan, get_rate_plan, list_rate_plans, patch_rate_plan
 
@@ -14,10 +15,12 @@ router = APIRouter()
 RatePlanReadRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+    Depends(require_scopes(RATE_PLANS_READ)),
 ]
 RatePlanWriteRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager")),
+    Depends(require_scopes(RATE_PLANS_WRITE)),
 ]
 
 

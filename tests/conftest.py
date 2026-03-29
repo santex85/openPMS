@@ -51,6 +51,30 @@ def auth_headers(jwt_secret: str):
 
 
 @pytest.fixture
+def auth_headers_user(jwt_secret: str):
+    """JWT with sub and role for routes that require UserIdDep (e.g. folio POST/DELETE)."""
+
+    def _make(
+        tenant_id: UUID,
+        user_id: UUID,
+        *,
+        role: str = "receptionist",
+    ) -> dict[str, str]:
+        token = jwt.encode(
+            {
+                "tenant_id": str(tenant_id),
+                "sub": str(user_id),
+                "role": role,
+            },
+            jwt_secret,
+            algorithm="HS256",
+        )
+        return {"Authorization": f"Bearer {token}"}
+
+    return _make
+
+
+@pytest.fixture
 def client():
     """Starlette TestClient runs app lifespan (async_session_factory on app.state)."""
     from starlette.testclient import TestClient

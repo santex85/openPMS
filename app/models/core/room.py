@@ -34,3 +34,13 @@ class Room(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    housekeeping_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="clean",
+    )
+    housekeeping_priority: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="normal",
+    )

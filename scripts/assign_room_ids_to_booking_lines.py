@@ -71,7 +71,6 @@ async def _seed_demo_booking_if_requested(session: AsyncSession) -> None:
     nights = [check_in + timedelta(days=i) for i in range(3)]
 
     guest = Guest(
-        id=uuid4(),
         tenant_id=room.tenant_id,
         first_name="Demo",
         last_name="Board",

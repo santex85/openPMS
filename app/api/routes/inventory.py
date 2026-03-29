@@ -4,26 +4,30 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles
+from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
 from app.schemas.availability_override import AvailabilityOverridePutRequest, AvailabilityOverridePutResponse
 from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryParams
 from app.services import availability_service
 from app.services.availability_lock import LedgerNotSeededError
 from app.services.availability_override_service import AvailabilityOverrideError, apply_blocked_rooms_override
+from app.services.webhook_runner import run_availability_after_override
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 InventoryReadRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+    Depends(require_scopes(INVENTORY_READ)),
 ]
 
 InventoryWriteRolesDep = Annotated[
     None,
     Depends(require_roles("owner", "manager")),
+    Depends(require_scopes(INVENTORY_WRITE)),
 ]
 
 
@@ -83,13 +87,19 @@ async def get_availability_grid(
     response_model=AvailabilityOverridePutResponse,
 )
 async def put_availability_overrides(
+    request: Request,
+    background_tasks: BackgroundTasks,
     _: InventoryWriteRolesDep,
     body: AvailabilityOverridePutRequest,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> AvailabilityOverridePutResponse:
     try:
-        n = await apply_blocked_rooms_override(session, tenant_id, body)
+        n, room_type_id, dates = await apply_blocked_rooms_override(
+            session,
+            tenant_id,
+            body,
+        )
     except LedgerNotSeededError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -97,4 +107,13 @@ async def put_availability_overrides(
         ) from exc
     except AvailabilityOverrideError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if dates:
+        factory = request.app.state.async_session_factory
+        background_tasks.add_task(
+            run_availability_after_override,
+            factory,
+            tenant_id,
+            room_type_id,
+            dates,
+        )
     return AvailabilityOverridePutResponse(dates_updated=n)

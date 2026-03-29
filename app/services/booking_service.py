@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import delete, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +21,7 @@ from app.schemas.bookings import (
     BookingCreateResponse,
     BookingPatchRequest,
     BookingTapeRead,
+    GuestPayload,
     GuestTapeRead,
     NightlyPriceLine,
 )
@@ -28,6 +30,7 @@ from app.services.availability_lock import (
     increment_booked_rooms,
     lock_and_validate_availability,
 )
+from app.services.folio_service import compute_folio_balance
 from app.services.pricing_service import MissingRatesError, sum_rates_for_stay
 from app.services.stay_dates import MAX_STAY_NIGHTS, iter_stay_nights
 
@@ -52,6 +55,77 @@ class PatchBookingError(Exception):
         super().__init__(detail)
         self.detail = detail
         self.status_code = status_code
+
+
+async def _get_or_create_guest_for_booking(
+    session: AsyncSession,
+    tenant_id: UUID,
+    payload: GuestPayload,
+) -> Guest:
+    email_norm = payload.email.strip().lower()
+    existing = await session.scalar(
+        select(Guest).where(
+            Guest.tenant_id == tenant_id,
+            Guest.email == email_norm,
+        ),
+    )
+    if existing is not None:
+        return existing
+
+    guest = Guest(
+        tenant_id=tenant_id,
+        first_name=payload.first_name.strip(),
+        last_name=payload.last_name.strip(),
+        email=email_norm,
+        phone=payload.phone.strip(),
+        passport_data=(
+            payload.passport_data.strip()
+            if payload.passport_data
+            else None
+        ),
+    )
+    session.add(guest)
+    try:
+        async with session.begin_nested():
+            await session.flush()
+    except IntegrityError:
+        session.expunge(guest)
+        again = await session.scalar(
+            select(Guest).where(
+                Guest.tenant_id == tenant_id,
+                Guest.email == email_norm,
+            ),
+        )
+        if again is None:
+            raise InvalidBookingContextError(
+                "could not create or resolve guest by email",
+            ) from None
+        return again
+    return guest
+
+
+async def _mark_assigned_rooms_dirty_on_checkout(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+) -> None:
+    stmt = select(BookingLine.room_id).where(
+        BookingLine.tenant_id == tenant_id,
+        BookingLine.booking_id == booking_id,
+        BookingLine.room_id.isnot(None),
+    )
+    result = await session.execute(stmt)
+    room_ids = {row[0] for row in result.all()}
+    for rid in room_ids:
+        room = await session.scalar(
+            select(Room).where(
+                Room.tenant_id == tenant_id,
+                Room.id == rid,
+                Room.deleted_at.is_(None),
+            ),
+        )
+        if room is not None:
+            room.housekeeping_status = "dirty"
 
 
 async def _require_room_type_on_property(
@@ -132,20 +206,11 @@ async def create_booking(
     )
     increment_booked_rooms(ledger_rows, 1)
 
-    guest = Guest(
-        tenant_id=tenant_id,
-        first_name=body.guest.first_name.strip(),
-        last_name=body.guest.last_name.strip(),
-        email=body.guest.email.strip(),
-        phone=body.guest.phone.strip(),
-        passport_data=(
-            body.guest.passport_data.strip()
-            if body.guest.passport_data
-            else None
-        ),
+    guest = await _get_or_create_guest_for_booking(
+        session,
+        tenant_id,
+        body.guest,
     )
-    session.add(guest)
-    await session.flush()
 
     booking = Booking(
         tenant_id=tenant_id,
@@ -178,6 +243,9 @@ async def create_booking(
             transaction_type="Charge",
             amount=total,
             payment_method=None,
+            description="Room charge (stay)",
+            created_by=None,
+            category="room_charge",
         ),
     )
     await session.flush()
@@ -363,10 +431,16 @@ async def _update_folio_charge_amount(
     booking_id: UUID,
     amount: Decimal,
 ) -> None:
-    stmt = select(FolioTransaction).where(
-        FolioTransaction.tenant_id == tenant_id,
-        FolioTransaction.booking_id == booking_id,
-        FolioTransaction.transaction_type == "Charge",
+    stmt = (
+        select(FolioTransaction)
+        .where(
+            FolioTransaction.tenant_id == tenant_id,
+            FolioTransaction.booking_id == booking_id,
+            FolioTransaction.transaction_type == "Charge",
+            FolioTransaction.category == "room_charge",
+        )
+        .order_by(FolioTransaction.created_at.asc())
+        .limit(1)
     )
     ft = await session.scalar(stmt)
     if ft is not None:
@@ -460,10 +534,13 @@ async def patch_booking(
     tenant_id: UUID,
     booking_id: UUID,
     body: BookingPatchRequest,
-) -> None:
+) -> Decimal | None:
+    """
+    Returns non-zero folio balance when status transitions to checked_out (checkout warning).
+    """
     data = body.model_dump(exclude_unset=True)
     if not data:
-        return
+        return None
 
     booking = await session.scalar(
         select(Booking)
@@ -476,6 +553,7 @@ async def patch_booking(
     if booking is None:
         raise PatchBookingError("booking not found", status_code=404)
 
+    prev_booking_status = booking.status
     lines = list(booking.lines)
 
     status_in = data.get("status")
@@ -484,7 +562,7 @@ async def patch_booking(
             await _release_booking_inventory(session, tenant_id, booking)
             booking.status = status_in.strip()
             await session.flush()
-        return
+        return None
 
     inactive = booking.status.strip().lower() in ("cancelled", "no_show")
     if inactive:
@@ -602,3 +680,18 @@ async def patch_booking(
             booking_id,
             data["room_id"],
         )
+
+    checkout_balance_warning: Decimal | None = None
+    if (
+        booking.status.strip().lower() == "checked_out"
+        and prev_booking_status.strip().lower() != "checked_out"
+    ):
+        await _mark_assigned_rooms_dirty_on_checkout(
+            session,
+            tenant_id,
+            booking.id,
+        )
+        bal = await compute_folio_balance(session, tenant_id, booking.id)
+        if bal != Decimal("0.00"):
+            checkout_balance_warning = bal
+    return checkout_balance_warning

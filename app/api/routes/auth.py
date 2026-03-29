@@ -10,6 +10,7 @@ from app.api.deps import (
     SessionDep,
     TenantIdDep,
     UserIdDep,
+    require_jwt_user,
     require_roles,
 )
 from app.core.config import get_settings
@@ -35,7 +36,11 @@ from app.services.auth_service import (
 
 router = APIRouter()
 
-WriteManagerDep = Annotated[None, Depends(require_roles("owner", "manager"))]
+InviteManagerDep = Annotated[
+    None,
+    Depends(require_jwt_user()),
+    Depends(require_roles("owner", "manager")),
+]
 
 
 @router.post(
@@ -126,7 +131,7 @@ async def get_me(
     status_code=status.HTTP_201_CREATED,
 )
 async def post_invite(
-    _: WriteManagerDep,
+    _: InviteManagerDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
     body: AuthInviteRequest,

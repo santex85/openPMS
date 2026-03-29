@@ -33,10 +33,10 @@ async def apply_blocked_rooms_override(
     session: AsyncSession,
     tenant_id: UUID,
     body: AvailabilityOverridePutRequest,
-) -> int:
+) -> tuple[int, UUID, list[date]]:
     dates = _iter_inclusive_dates(body.start_date, body.end_date)
     if not dates:
-        return 0
+        return 0, body.room_type_id, []
 
     stmt = (
         select(AvailabilityLedger)
@@ -66,4 +66,4 @@ async def apply_blocked_rooms_override(
             )
         row.blocked_rooms = body.blocked_rooms
 
-    return len(ledger_rows)
+    return len(ledger_rows), body.room_type_id, dates

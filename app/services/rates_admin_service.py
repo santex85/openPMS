@@ -101,7 +101,7 @@ async def bulk_upsert_rates(
     session: AsyncSession,
     tenant_id: UUID,
     body: BulkRatesPutRequest,
-) -> int:
+) -> tuple[int, list[tuple[UUID, UUID, date, str]]]:
     by_key: dict[tuple[UUID, UUID, date], dict] = {}
     for seg in body.segments:
         await _require_room_type_and_plan_same_property(
@@ -123,7 +123,7 @@ async def bulk_upsert_rates(
 
     rows = list(by_key.values())
     if not rows:
-        return 0
+        return 0, []
 
     stmt = insert(Rate).values(rows)
     stmt = stmt.on_conflict_do_update(
@@ -131,4 +131,8 @@ async def bulk_upsert_rates(
         set_={"price": stmt.excluded.price},
     )
     await session.execute(stmt)
-    return len(rows)
+    updates = [
+        (r["room_type_id"], r["rate_plan_id"], r["date"], format(r["price"], "f"))
+        for r in rows
+    ]
+    return len(rows), updates

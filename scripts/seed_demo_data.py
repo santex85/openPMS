@@ -112,7 +112,7 @@ async def main() -> int:
                             tenant_id=tenant_id,
                             room_type_id=rt_id,
                             name=f"{prefix}-{i}",
-                            status="active",
+                            status="available",
                         )
                         session.add(room)
 
