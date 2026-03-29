@@ -71,3 +71,12 @@ async def lock_and_validate_availability(
 def increment_booked_rooms(rows: Sequence[AvailabilityLedger], delta: int = 1) -> None:
     for row in rows:
         row.booked_rooms += delta
+
+
+def decrement_booked_rooms(rows: Sequence[AvailabilityLedger], delta: int = 1) -> None:
+    for row in rows:
+        row.booked_rooms -= delta
+        if row.booked_rooms < 0:
+            raise InsufficientInventoryError(
+                "booked_rooms would go negative for a ledger date",
+            )

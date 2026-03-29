@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import bookings, inventory, properties, room_types
+from app.api.routes import auth, bookings, inventory, nightly_rates, properties, rate_plans, room_types, rooms
 from app.core.config import get_settings
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.tenant_jwt import TenantJwtMiddleware
@@ -42,6 +42,11 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(
+        auth.router,
+        prefix="/auth",
+        tags=["auth"],
+    )
+    application.include_router(
         properties.router,
         prefix="/properties",
         tags=["properties"],
@@ -53,9 +58,20 @@ def create_app() -> FastAPI:
     )
     application.include_router(inventory.router)
     application.include_router(
+        rate_plans.router,
+        prefix="/rate-plans",
+        tags=["rate-plans"],
+    )
+    application.include_router(nightly_rates.router)
+    application.include_router(
         bookings.router,
         prefix="/bookings",
         tags=["bookings"],
+    )
+    application.include_router(
+        rooms.router,
+        prefix="/rooms",
+        tags=["rooms"],
     )
 
     @application.get("/health", tags=["system"])

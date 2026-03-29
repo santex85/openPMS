@@ -1,5 +1,6 @@
 """Import model modules here so Alembic autogenerate discovers metadata."""
 
+from app.models.auth import RefreshToken, User  # noqa: F401
 from app.models.bookings import (  # noqa: F401
     Booking,
     BookingLine,

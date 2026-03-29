@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
+    access_token_ttl_minutes: int = Field(
+        default=60,
+        ge=1,
+        description="Lifetime of access JWT (minutes).",
+    )
+    refresh_token_ttl_days: int = Field(
+        default=14,
+        ge=1,
+        description="Lifetime of refresh tokens (days).",
+    )
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173",
         description="Comma-separated browser origins allowed for CORS (e.g. Vite dev server).",

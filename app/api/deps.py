@@ -20,6 +20,37 @@ def get_tenant_id(request: Request) -> UUID:
 TenantIdDep = Annotated[UUID, Depends(get_tenant_id)]
 
 
+def get_user_id(request: Request) -> UUID:
+    user_id = getattr(request.state, "user_id", None)
+    if not isinstance(user_id, UUID):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token must include user subject (sub) for this route",
+        )
+    return user_id
+
+
+UserIdDep = Annotated[UUID, Depends(get_user_id)]
+
+
+def require_roles(*allowed: str):
+    allowed_set = frozenset(r.lower() for r in allowed)
+
+    async def _runner(request: Request) -> None:
+        role = getattr(request.state, "user_role", None)
+        if role is None:
+            role = "owner"
+        else:
+            role = role.lower()
+        if role not in allowed_set:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role for this operation",
+            )
+
+    return _runner
+
+
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     tenant_id = getattr(request.state, "tenant_id", None)
     if not isinstance(tenant_id, UUID):
@@ -36,3 +67,6 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
                 {"tid": str(tenant_id)},
             )
             yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_db)]

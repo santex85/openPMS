@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import time
+from datetime import date, timedelta, time
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -14,11 +14,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-key-minimum-32-characters!!")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test",
+)
 
 from app.main import app
 from app.models.bookings.booking import Booking
+from app.models.bookings.booking_line import BookingLine
 from app.models.bookings.guest import Guest
 from app.models.core.property import Property
+from app.models.core.room_type import RoomType
 from app.models.core.tenant import Tenant
 
 
@@ -111,6 +117,15 @@ def tenant_isolation_booking_scenario(db_engine):
                 )
                 session.add(prop)
                 await session.flush()
+                room_type = RoomType(
+                    tenant_id=tenant_a,
+                    property_id=prop.id,
+                    name="Standard",
+                    base_occupancy=2,
+                    max_occupancy=2,
+                )
+                session.add(room_type)
+                await session.flush()
                 guest = Guest(
                     tenant_id=tenant_a,
                     first_name="Ann",
@@ -129,6 +144,18 @@ def tenant_isolation_booking_scenario(db_engine):
                     total_amount=Decimal("100.00"),
                 )
                 session.add(booking)
+                await session.flush()
+                for i in range(3):
+                    session.add(
+                        BookingLine(
+                            tenant_id=tenant_a,
+                            booking_id=booking.id,
+                            date=date(2026, 3, 1) + timedelta(days=i),
+                            room_type_id=room_type.id,
+                            room_id=None,
+                            price_for_date=Decimal("33.34"),
+                        ),
+                    )
                 await session.flush()
                 booking_id = booking.id
                 property_id = prop.id

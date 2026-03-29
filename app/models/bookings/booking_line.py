@@ -1,14 +1,20 @@
 """Per-night (or per-date) booking line."""
 
+from __future__ import annotations
+
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import Date, ForeignKeyConstraint, Numeric, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.bookings.booking import Booking
 
 
 class BookingLine(Base):
@@ -43,3 +49,5 @@ class BookingLine(Base):
     room_type_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     room_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     price_for_date: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+    booking: Mapped["Booking"] = relationship(back_populates="lines")

@@ -1,12 +1,16 @@
 """Create booking: pricing, ledger lock, guest, booking, lines, folio."""
 
+from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
+from app.models.core.room import Room
 from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
 from app.models.rates.rate_plan import RatePlan
@@ -14,18 +18,40 @@ from app.models.core.room_type import RoomType
 from app.schemas.bookings import (
     BookingCreateRequest,
     BookingCreateResponse,
+    BookingPatchRequest,
+    BookingTapeRead,
+    GuestTapeRead,
     NightlyPriceLine,
 )
 from app.services.availability_lock import (
+    decrement_booked_rooms,
     increment_booked_rooms,
     lock_and_validate_availability,
 )
-from app.services.pricing_service import sum_rates_for_stay
-from app.services.stay_dates import iter_stay_nights
+from app.services.pricing_service import MissingRatesError, sum_rates_for_stay
+from app.services.stay_dates import MAX_STAY_NIGHTS, iter_stay_nights
 
 
 class InvalidBookingContextError(Exception):
     """Room type or rate plan is missing or not under the given property."""
+
+
+class AssignBookingRoomError(Exception):
+    """Cannot assign room to booking (wrong tenant, type, or property)."""
+
+    def __init__(self, detail: str, *, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+
+
+class PatchBookingError(Exception):
+    """Invalid booking patch (dates, inventory, or room conflict)."""
+
+    def __init__(self, detail: str, *, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
 
 
 async def _require_room_type_on_property(
@@ -125,6 +151,7 @@ async def create_booking(
         tenant_id=tenant_id,
         property_id=body.property_id,
         guest_id=guest.id,
+        rate_plan_id=body.rate_plan_id,
         status=body.status.strip(),
         source=body.source.strip(),
         total_amount=total,
@@ -174,3 +201,404 @@ async def list_bookings(
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def list_bookings_enriched(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    property_id: UUID,
+    start_date: date,
+    end_date: date,
+    status_filter: str | None = None,
+) -> list[BookingTapeRead]:
+    status_clause = ""
+    params: dict[str, object] = {
+        "tenant_id": str(tenant_id),
+        "property_id": str(property_id),
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    if status_filter is not None:
+        status_clause = " AND b.status = :status"
+        params["status"] = status_filter
+
+    sql = text(
+        """
+WITH line_agg AS (
+  SELECT
+    tenant_id,
+    booking_id,
+    MIN(date) AS check_in_date,
+    (MAX(date) + INTERVAL '1 day')::date AS check_out_date,
+    COUNT(DISTINCT room_type_id) AS rt_cnt,
+    MIN(room_type_id) AS rt_min,
+    COUNT(DISTINCT room_id) FILTER (WHERE room_id IS NOT NULL) AS rm_cnt,
+    MAX(room_id) FILTER (WHERE room_id IS NOT NULL) AS rm_val
+  FROM booking_lines
+  GROUP BY tenant_id, booking_id
+)
+SELECT
+  b.id,
+  b.tenant_id,
+  b.property_id,
+  b.guest_id,
+  b.status,
+  b.source,
+  b.total_amount,
+  g.id AS g_id,
+  g.first_name,
+  g.last_name,
+  la.check_in_date,
+  la.check_out_date,
+  CASE WHEN la.rt_cnt = 1 THEN la.rt_min ELSE NULL END AS room_type_id,
+  CASE WHEN la.rm_cnt = 1 THEN la.rm_val ELSE NULL END AS room_id
+FROM bookings b
+JOIN line_agg la ON la.booking_id = b.id AND la.tenant_id = b.tenant_id
+JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+WHERE b.tenant_id = CAST(:tenant_id AS uuid)
+  AND b.property_id = CAST(:property_id AS uuid)
+  AND EXISTS (
+    SELECT 1 FROM booking_lines bl
+    WHERE bl.booking_id = b.id AND bl.tenant_id = b.tenant_id
+      AND bl.date >= :start_date AND bl.date <= :end_date
+  )
+"""
+        + status_clause
+        + """
+ORDER BY b.id
+""",
+    )
+    result = await session.execute(sql, params)
+    out: list[BookingTapeRead] = []
+    for row in result.mappings().all():
+        guest = GuestTapeRead(
+            id=row["g_id"],
+            first_name=row["first_name"],
+            last_name=row["last_name"],
+        )
+        out.append(
+            BookingTapeRead(
+                id=row["id"],
+                tenant_id=row["tenant_id"],
+                property_id=row["property_id"],
+                guest_id=row["guest_id"],
+                status=row["status"],
+                source=row["source"],
+                total_amount=row["total_amount"],
+                guest=guest,
+                check_in_date=row["check_in_date"],
+                check_out_date=row["check_out_date"],
+                room_id=row["room_id"],
+                room_type_id=row["room_type_id"],
+            ),
+        )
+    return out
+
+
+def _stay_bounds_from_lines(lines: list[BookingLine]) -> tuple[date, date]:
+    nights = [ln.date for ln in lines]
+    return min(nights), max(nights) + timedelta(days=1)
+
+
+async def _assert_no_room_conflict(
+    session: AsyncSession,
+    tenant_id: UUID,
+    room_id: UUID,
+    nights: list[date],
+    exclude_booking_id: UUID,
+) -> None:
+    if not nights:
+        return
+    stmt = (
+        select(BookingLine.id)
+        .join(
+            Booking,
+            (Booking.tenant_id == BookingLine.tenant_id)
+            & (Booking.id == BookingLine.booking_id),
+        )
+        .where(
+            BookingLine.tenant_id == tenant_id,
+            BookingLine.room_id == room_id,
+            BookingLine.date.in_(nights),
+            BookingLine.booking_id != exclude_booking_id,
+            Booking.status.notin_(["cancelled", "no_show"]),
+        )
+        .limit(1)
+    )
+    clash = await session.scalar(stmt)
+    if clash is not None:
+        raise AssignBookingRoomError(
+            "room is already used by another active booking on overlapping nights",
+            status_code=409,
+        )
+
+
+async def _release_booking_inventory(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking: Booking,
+) -> None:
+    lines = list(booking.lines)
+    if not lines:
+        return
+    rt_ids = {ln.room_type_id for ln in lines}
+    if len(rt_ids) != 1:
+        return
+    room_type_id = next(iter(rt_ids))
+    nights = [ln.date for ln in lines]
+    rows = await lock_and_validate_availability(
+        session,
+        tenant_id,
+        room_type_id,
+        nights,
+        rooms_to_book=0,
+    )
+    decrement_booked_rooms(rows, 1)
+
+
+async def _update_folio_charge_amount(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+    amount: Decimal,
+) -> None:
+    stmt = select(FolioTransaction).where(
+        FolioTransaction.tenant_id == tenant_id,
+        FolioTransaction.booking_id == booking_id,
+        FolioTransaction.transaction_type == "Charge",
+    )
+    ft = await session.scalar(stmt)
+    if ft is not None:
+        ft.amount = amount
+
+
+async def assign_booking_room(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+    room_id: UUID | None,
+) -> None:
+    booking = await session.scalar(
+        select(Booking)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.id == booking_id,
+        )
+        .options(selectinload(Booking.lines)),
+    )
+    if booking is None:
+        raise AssignBookingRoomError("booking not found", status_code=404)
+
+    if booking.status.strip().lower() in ("cancelled", "no_show"):
+        raise AssignBookingRoomError(
+            "cannot assign room on an inactive booking",
+            status_code=409,
+        )
+
+    lines = list(booking.lines)
+    if not lines:
+        raise AssignBookingRoomError("booking has no lines")
+
+    rt_ids = {ln.room_type_id for ln in lines}
+    if len(rt_ids) != 1:
+        raise AssignBookingRoomError(
+            "booking lines must share a single room type",
+            status_code=409,
+        )
+    line_room_type_id = next(iter(rt_ids))
+
+    nights = sorted({ln.date for ln in lines})
+
+    if room_id is None:
+        for ln in lines:
+            ln.room_id = None
+        return
+
+    room = await session.scalar(
+        select(Room).where(
+            Room.tenant_id == tenant_id,
+            Room.id == room_id,
+            Room.deleted_at.is_(None),
+        ),
+    )
+    if room is None:
+        raise AssignBookingRoomError("room not found", status_code=404)
+
+    if room.room_type_id != line_room_type_id:
+        raise AssignBookingRoomError(
+            "room category does not match booking",
+            status_code=409,
+        )
+
+    rt = await session.scalar(
+        select(RoomType).where(
+            RoomType.tenant_id == tenant_id,
+            RoomType.id == room.room_type_id,
+        ),
+    )
+    if rt is None or rt.property_id != booking.property_id:
+        raise AssignBookingRoomError(
+            "room is not on the same property as the booking",
+            status_code=409,
+        )
+
+    await _assert_no_room_conflict(
+        session,
+        tenant_id,
+        room_id,
+        nights,
+        booking.id,
+    )
+
+    for ln in lines:
+        ln.room_id = room_id
+
+
+async def patch_booking(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+    body: BookingPatchRequest,
+) -> None:
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        return
+
+    booking = await session.scalar(
+        select(Booking)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.id == booking_id,
+        )
+        .options(selectinload(Booking.lines)),
+    )
+    if booking is None:
+        raise PatchBookingError("booking not found", status_code=404)
+
+    lines = list(booking.lines)
+
+    status_in = data.get("status")
+    if status_in is not None and status_in.strip().lower() == "cancelled":
+        if booking.status.strip().lower() != "cancelled":
+            await _release_booking_inventory(session, tenant_id, booking)
+            booking.status = status_in.strip()
+            await session.flush()
+        return
+
+    inactive = booking.status.strip().lower() in ("cancelled", "no_show")
+    if inactive:
+        if "status" in data and str(data["status"]).strip().lower() not in (
+            "cancelled",
+            "no_show",
+        ):
+            raise PatchBookingError(
+                "reactivating a cancelled booking is not supported",
+                status_code=409,
+            )
+        if {"check_in", "check_out", "room_id"} & data.keys():
+            raise PatchBookingError(
+                "cannot change stay dates or room on a cancelled booking",
+                status_code=409,
+            )
+
+    if "check_in" in data or "check_out" in data:
+        if not lines:
+            raise PatchBookingError("booking has no lines", status_code=409)
+        ci, co = _stay_bounds_from_lines(lines)
+        new_ci = data.get("check_in", ci)
+        new_co = data.get("check_out", co)
+        if new_co <= new_ci:
+            raise PatchBookingError("check_out must be after check_in", status_code=422)
+        if (new_co - new_ci).days > MAX_STAY_NIGHTS:
+            raise PatchBookingError(
+                f"stay cannot exceed {MAX_STAY_NIGHTS} nights",
+                status_code=422,
+            )
+
+        if new_ci != ci or new_co != co:
+            if booking.rate_plan_id is None:
+                raise PatchBookingError(
+                    "booking has no stored rate_plan_id; cannot repricing on date change",
+                    status_code=422,
+                )
+            rt_ids = {ln.room_type_id for ln in lines}
+            if len(rt_ids) != 1:
+                raise PatchBookingError(
+                    "booking lines must share a single room type",
+                    status_code=409,
+                )
+            room_type_id = next(iter(rt_ids))
+            old_nights = sorted({ln.date for ln in lines})
+            old_rows = await lock_and_validate_availability(
+                session,
+                tenant_id,
+                room_type_id,
+                old_nights,
+                rooms_to_book=0,
+            )
+            decrement_booked_rooms(old_rows, 1)
+
+            try:
+                total, per_night = await sum_rates_for_stay(
+                    session,
+                    tenant_id,
+                    room_type_id,
+                    booking.rate_plan_id,
+                    new_ci,
+                    new_co,
+                )
+            except MissingRatesError as exc:
+                raise PatchBookingError(
+                    f"missing rates for dates: {[d.isoformat() for d in exc.missing_dates]}",
+                    status_code=422,
+                ) from exc
+
+            new_nights = list(iter_stay_nights(new_ci, new_co))
+            new_rows = await lock_and_validate_availability(
+                session,
+                tenant_id,
+                room_type_id,
+                new_nights,
+                rooms_to_book=1,
+            )
+            increment_booked_rooms(new_rows, 1)
+
+            await session.execute(
+                delete(BookingLine).where(
+                    BookingLine.tenant_id == tenant_id,
+                    BookingLine.booking_id == booking.id,
+                ),
+            )
+            await session.flush()
+
+            for night, price in per_night:
+                session.add(
+                    BookingLine(
+                        tenant_id=tenant_id,
+                        booking_id=booking.id,
+                        date=night,
+                        room_type_id=room_type_id,
+                        room_id=None,
+                        price_for_date=price,
+                    ),
+                )
+            booking.total_amount = total
+            await _update_folio_charge_amount(
+                session,
+                tenant_id,
+                booking.id,
+                total,
+            )
+            await session.flush()
+
+    if "status" in data:
+        booking.status = str(data["status"]).strip()
+
+    if "room_id" in data:
+        await assign_booking_room(
+            session,
+            tenant_id,
+            booking_id,
+            data["room_id"],
+        )

@@ -6,13 +6,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantIdDep, get_db
+from app.api.deps import TenantIdDep, get_db, require_roles
 from app.schemas.room_type import RoomTypeCreate, RoomTypeRead
 from app.services import room_type_service
 
 router = APIRouter()
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
+
+RoomTypeReadRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+]
+RoomTypeWriteRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager")),
+]
 
 
 @router.post(
@@ -21,6 +30,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
     status_code=status.HTTP_201_CREATED,
 )
 async def create_room_type(
+    _: RoomTypeWriteRolesDep,
     body: RoomTypeCreate,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -37,6 +47,7 @@ async def create_room_type(
 
 @router.get("", response_model=list[RoomTypeRead])
 async def list_room_types(
+    _: RoomTypeReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
     property_id: Annotated[UUID | None, Query()] = None,
@@ -51,6 +62,7 @@ async def list_room_types(
 
 @router.get("/{room_type_id}", response_model=RoomTypeRead)
 async def get_room_type(
+    _: RoomTypeReadRolesDep,
     room_type_id: UUID,
     session: SessionDep,
     tenant_id: TenantIdDep,

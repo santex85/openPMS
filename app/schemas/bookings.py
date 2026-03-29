@@ -60,3 +60,42 @@ class BookingRead(BaseModel):
     status: str
     source: str
     total_amount: Decimal
+
+
+class GuestTapeRead(BaseModel):
+    """Guest summary for board / tape list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    first_name: str
+    last_name: str
+
+
+class BookingPatchRequest(BaseModel):
+    """Partial booking update: room assignment, status, or stay dates."""
+
+    room_id: UUID | None = None
+    status: str | None = Field(None, max_length=64)
+    check_in: date | None = None
+    check_out: date | None = None
+    model_config = ConfigDict(extra="forbid")
+
+
+class BookingTapeRead(BaseModel):
+    """Booking row for availability board: stay bounds from lines, guest summary."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    property_id: UUID
+    guest_id: UUID
+    status: str
+    source: str
+    total_amount: Decimal
+    guest: GuestTapeRead
+    check_in_date: date | None = None
+    check_out_date: date | None = None
+    room_id: UUID | None = None
+    room_type_id: UUID | None = None

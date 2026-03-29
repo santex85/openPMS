@@ -21,6 +21,9 @@ def _is_auth_exempt_path(path: str) -> bool:
         "/redoc",
         "/docs/oauth2-redirect",
         "/favicon.ico",
+        "/auth/register",
+        "/auth/login",
+        "/auth/refresh",
     }
     if path in exempt:
         return True
@@ -81,6 +84,20 @@ class TenantJwtMiddleware(BaseHTTPMiddleware):
             return _unauthorized_response("tenant_id must be a valid UUID")
 
         request.state.tenant_id = tenant_id
+
+        raw_sub = payload.get("sub")
+        if raw_sub is not None:
+            try:
+                request.state.user_id = UUID(str(raw_sub))
+            except ValueError:
+                return _unauthorized_response("sub must be a valid UUID")
+
+        raw_role = payload.get("role")
+        if isinstance(raw_role, str) and raw_role:
+            trimmed = raw_role.strip()
+            if trimmed:
+                request.state.user_role = trimmed.lower()
+
         return await call_next(request)
 
 

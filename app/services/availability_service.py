@@ -25,6 +25,7 @@ async def _room_counts_by_type(
         .where(
             Room.tenant_id == tenant_id,
             Room.room_type_id.in_(room_type_ids),
+            Room.deleted_at.is_(None),
         )
         .group_by(Room.room_type_id)
     )

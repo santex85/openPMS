@@ -6,15 +6,25 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantIdDep, get_db
+from app.api.deps import SessionDep, TenantIdDep, require_roles
+from app.schemas.availability_override import AvailabilityOverridePutRequest, AvailabilityOverridePutResponse
 from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryParams
 from app.services import availability_service
+from app.services.availability_lock import LedgerNotSeededError
+from app.services.availability_override_service import AvailabilityOverrideError, apply_blocked_rooms_override
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
-SessionDep = Annotated[AsyncSession, Depends(get_db)]
+InventoryReadRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+]
+
+InventoryWriteRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager")),
+]
 
 
 def _availability_query_params(
@@ -47,6 +57,7 @@ def _availability_query_params(
     response_model=AvailabilityGridResponse,
 )
 async def get_availability_grid(
+    _: InventoryReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
     params: Annotated[AvailabilityQueryParams, Depends(_availability_query_params)],
@@ -65,3 +76,25 @@ async def get_availability_grid(
             detail="Property not found",
         )
     return grid
+
+
+@router.put(
+    "/availability/overrides",
+    response_model=AvailabilityOverridePutResponse,
+)
+async def put_availability_overrides(
+    _: InventoryWriteRolesDep,
+    body: AvailabilityOverridePutRequest,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> AvailabilityOverridePutResponse:
+    try:
+        n = await apply_blocked_rooms_override(session, tenant_id, body)
+    except LedgerNotSeededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except AvailabilityOverrideError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return AvailabilityOverridePutResponse(dates_updated=n)

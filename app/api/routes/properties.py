@@ -6,13 +6,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantIdDep, get_db
+from app.api.deps import TenantIdDep, get_db, require_roles
 from app.schemas.property import PropertyCreate, PropertyRead
 from app.services import property_service
 
 router = APIRouter()
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
+
+PropertyReadRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
+]
+PropertyWriteRolesDep = Annotated[
+    None,
+    Depends(require_roles("owner", "manager")),
+]
 
 
 @router.post(
@@ -21,6 +30,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
     status_code=status.HTTP_201_CREATED,
 )
 async def create_property(
+    _: PropertyWriteRolesDep,
     body: PropertyCreate,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -31,6 +41,7 @@ async def create_property(
 
 @router.get("", response_model=list[PropertyRead])
 async def list_properties(
+    _: PropertyReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> list[PropertyRead]:
@@ -40,6 +51,7 @@ async def list_properties(
 
 @router.get("/{property_id}", response_model=PropertyRead)
 async def get_property(
+    _: PropertyReadRolesDep,
     property_id: UUID,
     session: SessionDep,
     tenant_id: TenantIdDep,
