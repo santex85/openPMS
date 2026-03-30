@@ -13,6 +13,7 @@ from app.schemas.webhooks import (
     WebhookSubscriptionPatch,
     WebhookSubscriptionRead,
 )
+from app.services.audit_service import record_audit
 from app.services.webhook_subscription_service import WebhookSubscriptionError, create_subscription, list_subscriptions, patch_subscription
 
 router = APIRouter()
@@ -68,6 +69,18 @@ async def create_webhook_subscription(
         )
     except WebhookSubscriptionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="webhook_subscription.create",
+        entity_type="webhook_subscription",
+        entity_id=row.id,
+        new_values={
+            "url": row.url,
+            "events": list(row.events or []),
+            "is_active": row.is_active,
+        },
+    )
     base = WebhookSubscriptionRead.model_validate(row)
     return WebhookSubscriptionCreateResponse(**base.model_dump(), secret=secret)
 
@@ -96,4 +109,12 @@ async def patch_webhook_subscription(
         )
     except WebhookSubscriptionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="webhook_subscription.patch",
+        entity_type="webhook_subscription",
+        entity_id=subscription_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
     return WebhookSubscriptionRead.model_validate(row)

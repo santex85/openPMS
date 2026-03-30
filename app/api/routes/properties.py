@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantIdDep, get_db, require_roles, require_scopes
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
-from app.schemas.property import PropertyCreate, PropertyRead
+from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.services import property_service
+from app.services.audit_service import record_audit
 
 router = APIRouter()
 
@@ -39,6 +40,14 @@ async def create_property(
     tenant_id: TenantIdDep,
 ) -> PropertyRead:
     prop = await property_service.create_property(session, tenant_id, body)
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.create",
+        entity_type="property",
+        entity_id=prop.id,
+        new_values=PropertyRead.model_validate(prop).model_dump(mode="json"),
+    )
     return PropertyRead.model_validate(prop)
 
 
@@ -66,3 +75,29 @@ async def get_property(
             detail="Property not found",
         )
     return PropertyRead.model_validate(prop)
+
+
+@router.patch("/{property_id}", response_model=PropertyRead)
+async def patch_property(
+    _: PropertyWriteRolesDep,
+    property_id: UUID,
+    body: PropertyPatch,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> PropertyRead:
+    prop = await property_service.update_property(session, tenant_id, property_id, body)
+    if prop is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.patch",
+        entity_type="property",
+        entity_id=property_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
+    return PropertyRead.model_validate(prop)
+

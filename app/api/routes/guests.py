@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import GUESTS_READ, GUESTS_WRITE
 from app.schemas.guest import GuestCreate, GuestDetailRead, GuestPatch, GuestRead
+from app.services.audit_service import record_audit
 from app.services.guest_service import GuestServiceError, create_guest, get_guest_with_booking_summaries, list_guests, patch_guest
 
 router = APIRouter()
@@ -67,6 +68,14 @@ async def post_guest(
         row = await create_guest(session, tenant_id, body)
     except GuestServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="guest.create",
+        entity_type="guest",
+        entity_id=row.id,
+        new_values=GuestRead.model_validate(row).model_dump(mode="json"),
+    )
     return GuestRead.model_validate(row)
 
 
@@ -82,4 +91,12 @@ async def patch_guest_by_id(
         row = await patch_guest(session, tenant_id, guest_id, body)
     except GuestServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="guest.patch",
+        entity_type="guest",
+        entity_id=guest_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
     return GuestRead.model_validate(row)

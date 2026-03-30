@@ -79,54 +79,53 @@ async def deliver_to_subscription(
         "X-Webhook-Signature": f"sha256={signature}",
     }
 
-    for attempt_idx in range(3):
-        attempt_no = attempt_idx + 1
-        http_status: int | None = None
-        err_msg: str | None = None
-        try:
-            async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for attempt_idx in range(3):
+            attempt_no = attempt_idx + 1
+            http_status: int | None = None
+            err_msg: str | None = None
+            try:
                 response = await client.post(
                     sub.url,
                     content=body_bytes,
                     headers=headers,
-                    timeout=30.0,
                 )
-            http_status = response.status_code
-            if 200 <= response.status_code < 300:
-                async with factory() as session:
-                    async with session.begin():
-                        await _set_tenant(session, tenant_id)
-                        await _append_delivery_log(
-                            session,
-                            tenant_id,
-                            sub.id,
-                            event_type,
-                            attempt_no,
-                            http_status_code=http_status,
-                            error_message=None,
-                            payload=envelope,
-                        )
-                return
-            err_msg = f"HTTP {response.status_code}"
-        except Exception as exc:
-            err_msg = str(exc)[:4000]
+                http_status = response.status_code
+                if 200 <= response.status_code < 300:
+                    async with factory() as session:
+                        async with session.begin():
+                            await _set_tenant(session, tenant_id)
+                            await _append_delivery_log(
+                                session,
+                                tenant_id,
+                                sub.id,
+                                event_type,
+                                attempt_no,
+                                http_status_code=http_status,
+                                error_message=None,
+                                payload=envelope,
+                            )
+                    return
+                err_msg = f"HTTP {response.status_code}"
+            except Exception as exc:
+                err_msg = str(exc)[:4000]
 
-        async with factory() as session:
-            async with session.begin():
-                await _set_tenant(session, tenant_id)
-                await _append_delivery_log(
-                    session,
-                    tenant_id,
-                    sub.id,
-                    event_type,
-                    attempt_no,
-                    http_status_code=http_status,
-                    error_message=err_msg,
-                    payload=envelope,
-                )
+            async with factory() as session:
+                async with session.begin():
+                    await _set_tenant(session, tenant_id)
+                    await _append_delivery_log(
+                        session,
+                        tenant_id,
+                        sub.id,
+                        event_type,
+                        attempt_no,
+                        http_status_code=http_status,
+                        error_message=err_msg,
+                        payload=envelope,
+                    )
 
-        if attempt_idx < 2:
-            await asyncio.sleep(_RETRY_SLEEP_SEC[attempt_idx])
+            if attempt_idx < 2:
+                await asyncio.sleep(_RETRY_SLEEP_SEC[attempt_idx])
 
 
 async def dispatch_webhook_event(

@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKeyConstraint, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -55,7 +55,9 @@ class Booking(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
     guest: Mapped["Guest"] = relationship(
-        primaryjoin="and_(Booking.tenant_id == foreign(Guest.tenant_id), Booking.guest_id == Guest.id)",
+        "Guest",
+        primaryjoin="and_(Booking.tenant_id == Guest.tenant_id, Booking.guest_id == Guest.id)",
+        foreign_keys=[tenant_id, guest_id],
         viewonly=True,
     )
     lines: Mapped[list["BookingLine"]] = relationship(back_populates="booking")

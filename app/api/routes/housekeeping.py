@@ -19,6 +19,7 @@ from app.schemas.housekeeping import (
     HousekeepingPatchResponse,
     HousekeepingRoomRead,
 )
+from app.services.audit_service import record_audit
 from app.services.housekeeping_service import HousekeepingServiceError, list_rooms_for_housekeeping, patch_room_housekeeping
 
 router = APIRouter(prefix="/housekeeping", tags=["housekeeping"])
@@ -85,6 +86,21 @@ async def patch_housekeeping_room(
         )
     except HousekeepingServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="housekeeping.room.patch",
+        entity_type="room",
+        entity_id=room_id,
+        new_values={
+            "housekeeping_status": body.housekeeping_status,
+            **(
+                {"housekeeping_priority": body.housekeeping_priority}
+                if body.housekeeping_priority is not None
+                else {}
+            ),
+        },
+    )
     return HousekeepingPatchResponse(
         id=room.id,
         housekeeping_status=room.housekeeping_status,

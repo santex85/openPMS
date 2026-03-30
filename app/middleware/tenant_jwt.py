@@ -5,7 +5,7 @@ from uuid import UUID
 
 import jwt
 from jwt.exceptions import InvalidTokenError, PyJWTError
-from sqlalchemy import func, select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -13,7 +13,6 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.audit_context import bind_audit_context, reset_audit_context
 from app.core.config import get_settings
-from app.models.auth.api_key import ApiKey
 from app.schemas.auth import UnauthorizedResponse
 from app.services.api_key_service import hash_api_key
 
@@ -128,18 +127,11 @@ async def _authenticate_api_key(request: Request, session: AsyncSession) -> bool
         return False
 
     digest = hash_api_key(raw.strip())
-    stmt = (
-        select(ApiKey.tenant_id, ApiKey.id, ApiKey.scopes)
-        .where(
-            ApiKey.key_hash == digest,
-            ApiKey.is_active.is_(True),
-        )
-        .where(
-            (ApiKey.expires_at.is_(None)) | (ApiKey.expires_at > func.now()),
-        )
+    # api_keys uses FORCE RLS; tenant is unknown until after hash lookup.
+    result = await session.execute(
+        text("SELECT tenant_id, key_id, scopes FROM lookup_api_key_by_hash(:h)"),
+        {"h": digest},
     )
-
-    result = await session.execute(stmt)
     row = result.first()
     if row is None:
         raise ValueError("unknown_key")

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
 from app.schemas.rooms import RoomCreate, RoomPatch, RoomRead
+from app.services.audit_service import record_audit
 from app.services.room_list_service import property_belongs_to_tenant
 from app.services.room_service import RoomServiceError, create_room, get_room, list_rooms, patch_room, soft_delete_room
 
@@ -88,6 +89,14 @@ async def post_room(
         )
     except RoomServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="room.create",
+        entity_type="room",
+        entity_id=row.id,
+        new_values=RoomRead.model_validate(row).model_dump(mode="json"),
+    )
     return RoomRead.model_validate(row)
 
 
@@ -111,6 +120,14 @@ async def patch_room_by_id(
         )
     except RoomServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="room.patch",
+        entity_type="room",
+        entity_id=room_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
     return RoomRead.model_validate(row)
 
 
@@ -125,3 +142,11 @@ async def delete_room(
         await soft_delete_room(session, tenant_id, room_id)
     except RoomServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="room.delete",
+        entity_type="room",
+        entity_id=room_id,
+        new_values={"soft_delete": True},
+    )

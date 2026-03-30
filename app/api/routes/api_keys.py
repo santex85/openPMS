@@ -18,6 +18,7 @@ from app.schemas.api_keys import (
     ApiKeyRead,
 )
 from app.services.api_key_service import ApiKeyServiceError, create_api_key, list_api_keys, patch_api_key
+from app.services.audit_service import record_audit
 
 router = APIRouter()
 
@@ -62,6 +63,18 @@ async def post_api_key(
             status_code=exc.status_code,
             detail=exc.detail,
         ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="api_key.create",
+        entity_type="api_key",
+        entity_id=row.id,
+        new_values={
+            "name": row.name,
+            "scopes": list(body.scopes),
+            "expires_at": body.expires_at.isoformat() if body.expires_at else None,
+        },
+    )
     base = ApiKeyRead.model_validate(row)
     return ApiKeyCreateResponse(
         **base.model_dump(),
@@ -91,4 +104,12 @@ async def patch_api_key_route(
             status_code=exc.status_code,
             detail=exc.detail,
         ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="api_key.patch",
+        entity_type="api_key",
+        entity_id=key_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
     return ApiKeyRead.model_validate(row)

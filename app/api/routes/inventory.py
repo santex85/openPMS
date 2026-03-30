@@ -14,6 +14,7 @@ from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryPar
 from app.services import availability_service
 from app.services.availability_lock import LedgerNotSeededError
 from app.services.availability_override_service import AvailabilityOverrideError, apply_blocked_rooms_override
+from app.services.audit_service import record_audit
 from app.services.webhook_runner import run_availability_after_override
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -107,6 +108,14 @@ async def put_availability_overrides(
         ) from exc
     except AvailabilityOverrideError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="inventory.availability_override.put",
+        entity_type="availability_ledger",
+        entity_id=body.room_type_id,
+        new_values=body.model_dump(mode="json") | {"dates_updated": n},
+    )
     if dates:
         factory = request.app.state.async_session_factory
         background_tasks.add_task(

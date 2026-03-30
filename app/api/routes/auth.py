@@ -4,7 +4,6 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import text
 
 from app.api.cookies_auth import attach_refresh_cookie, clear_refresh_cookie
 from app.api.deps import (
@@ -15,6 +14,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.config import get_settings
+from app.db.rls_session import tenant_transaction_session
 from app.schemas.auth import (
     AccessTokenResponse,
     AuthInviteRequest,
@@ -59,26 +59,19 @@ async def post_register(
     settings = get_settings()
     factory = request.app.state.async_session_factory
     tenant_id = uuid4()
-    async with factory() as session:
-        async with session.begin():
-            await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
-                ),
-                {"tid": str(tenant_id)},
+    try:
+        async with tenant_transaction_session(factory, tenant_id) as session:
+            full = await register_tenant_owner(
+                session,
+                settings,
+                body,
+                tenant_id=tenant_id,
             )
-            try:
-                full = await register_tenant_owner(
-                    session,
-                    settings,
-                    body,
-                    tenant_id=tenant_id,
-                )
-            except AuthServiceError as exc:
-                raise HTTPException(
-                    status_code=exc.status_code,
-                    detail=exc.detail,
-                ) from exc
+    except AuthServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
     public = AuthRegisterPublicResponse(
         access_token=full.access_token,
         token_type=full.token_type,
@@ -97,21 +90,14 @@ async def post_login(
 ) -> AuthLoginPublicResponse:
     settings = get_settings()
     factory = request.app.state.async_session_factory
-    async with factory() as session:
-        async with session.begin():
-            await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
-                ),
-                {"tid": str(body.tenant_id)},
-            )
-            try:
-                full = await login_user(session, settings, body)
-            except AuthServiceError as exc:
-                raise HTTPException(
-                    status_code=exc.status_code,
-                    detail=exc.detail,
-                ) from exc
+    try:
+        async with tenant_transaction_session(factory, body.tenant_id) as session:
+            full = await login_user(session, settings, body)
+    except AuthServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
     public = AuthLoginPublicResponse(
         access_token=full.access_token,
         token_type=full.token_type,
@@ -138,22 +124,15 @@ async def post_refresh(
         )
     body_filled = AuthRefreshRequest(tenant_id=body.tenant_id, refresh_token=str(raw).strip())
     factory = request.app.state.async_session_factory
-    async with factory() as session:
-        async with session.begin():
-            await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
-                ),
-                {"tid": str(body.tenant_id)},
-            )
-            try:
-                full = await refresh_session(session, settings, body_filled)
-            except AuthServiceError as exc:
-                clear_refresh_cookie(response, settings)
-                raise HTTPException(
-                    status_code=exc.status_code,
-                    detail=exc.detail,
-                ) from exc
+    try:
+        async with tenant_transaction_session(factory, body.tenant_id) as session:
+            full = await refresh_session(session, settings, body_filled)
+    except AuthServiceError as exc:
+        clear_refresh_cookie(response, settings)
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
     attach_refresh_cookie(response, settings, full.refresh_token)
     return AccessTokenResponse(access_token=full.access_token, token_type=full.token_type)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_context import get_audit_context
@@ -34,3 +35,21 @@ async def record_audit(
             ip_address=ctx.ip_address if ctx else None,
         ),
     )
+
+
+async def list_audit_logs(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    limit: int,
+    offset: int,
+) -> list[AuditLog]:
+    stmt = (
+        select(AuditLog)
+        .where(AuditLog.tenant_id == tenant_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())

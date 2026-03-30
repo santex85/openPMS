@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     api_keys,
+    audit_log,
     auth,
     bookings,
     guests,
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
             {"name": "rate-plans", "description": "Rate plans per property."},
             {"name": "api-keys", "description": "Integration API keys (JWT-only management)."},
             {"name": "webhooks", "description": "HTTPS webhook subscriptions and delivery logs (JWT-only)."},
+            {"name": "audit", "description": "Append-only audit log read API (owner / manager)."},
         ],
     )
     application.add_middleware(TenantJwtMiddleware)
@@ -118,6 +120,11 @@ def create_app() -> FastAPI:
         tags=["api-keys"],
     )
     application.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+    application.include_router(
+        audit_log.router,
+        prefix="/audit-log",
+        tags=["audit"],
+    )
 
     @application.get("/health", tags=["system"])
     async def health() -> dict[str, str]:

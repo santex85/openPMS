@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core.property import Property
-from app.schemas.property import PropertyCreate
+from app.schemas.property import PropertyCreate, PropertyPatch
 
 
 async def create_property(
@@ -51,3 +51,27 @@ async def get_property(
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def update_property(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+    data: PropertyPatch,
+) -> Property | None:
+    prop = await get_property(session, tenant_id, property_id)
+    if prop is None:
+        return None
+    patch = data.model_dump(exclude_unset=True)
+    if "name" in patch:
+        prop.name = patch["name"].strip()
+    if "timezone" in patch:
+        prop.timezone = patch["timezone"]
+    if "currency" in patch:
+        prop.currency = patch["currency"]
+    if "checkin_time" in patch:
+        prop.checkin_time = patch["checkin_time"]
+    if "checkout_time" in patch:
+        prop.checkout_time = patch["checkout_time"]
+    await session.flush()
+    return prop

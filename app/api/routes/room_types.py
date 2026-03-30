@@ -10,6 +10,7 @@ from app.api.deps import TenantIdDep, get_db, require_roles, require_scopes
 from app.core.api_scopes import ROOM_TYPES_READ, ROOM_TYPES_WRITE
 from app.schemas.room_type import RoomTypeCreate, RoomTypeRead
 from app.services import room_type_service
+from app.services.audit_service import record_audit
 
 router = APIRouter()
 
@@ -45,6 +46,14 @@ async def create_room_type(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Property not found",
         ) from None
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="room_type.create",
+        entity_type="room_type",
+        entity_id=rt.id,
+        new_values=RoomTypeRead.model_validate(rt).model_dump(mode="json"),
+    )
     return RoomTypeRead.model_validate(rt)
 
 

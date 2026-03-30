@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATE_PLANS_READ, RATE_PLANS_WRITE
 from app.schemas.rate_plan import RatePlanCreate, RatePlanPatch, RatePlanRead
+from app.services.audit_service import record_audit
 from app.services.rate_plan_service import RatePlanServiceError, create_rate_plan, delete_rate_plan, get_rate_plan, list_rate_plans, patch_rate_plan
 
 router = APIRouter()
@@ -60,6 +61,14 @@ async def post_rate_plan(
         row = await create_rate_plan(session, tenant_id, body)
     except RatePlanServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="rate_plan.create",
+        entity_type="rate_plan",
+        entity_id=row.id,
+        new_values=RatePlanRead.model_validate(row).model_dump(mode="json"),
+    )
     return RatePlanRead.model_validate(row)
 
 
@@ -75,6 +84,14 @@ async def patch_rate_plan_by_id(
         row = await patch_rate_plan(session, tenant_id, rate_plan_id, body)
     except RatePlanServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="rate_plan.patch",
+        entity_type="rate_plan",
+        entity_id=rate_plan_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
     return RatePlanRead.model_validate(row)
 
 
@@ -89,3 +106,11 @@ async def delete_rate_plan_by_id(
         await delete_rate_plan(session, tenant_id, rate_plan_id)
     except RatePlanServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="rate_plan.delete",
+        entity_type="rate_plan",
+        entity_id=rate_plan_id,
+        new_values={"deleted": True},
+    )
