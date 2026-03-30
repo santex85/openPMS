@@ -11,7 +11,14 @@ from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
 from app.schemas.rooms import RoomCreate, RoomPatch, RoomRead
 from app.services.audit_service import record_audit
 from app.services.room_list_service import property_belongs_to_tenant
-from app.services.room_service import RoomServiceError, create_room, get_room, list_rooms, patch_room, soft_delete_room
+from app.services.room_service import (
+    RoomServiceError,
+    create_room,
+    get_room,
+    list_rooms,
+    patch_room,
+    soft_delete_room,
+)
 
 router = APIRouter()
 

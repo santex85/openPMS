@@ -98,10 +98,12 @@ async def delete_rate_plan(
         raise RatePlanServiceError("rate plan not found", status_code=404)
 
     ref = await session.scalar(
-        select(Booking.id).where(
+        select(Booking.id)
+        .where(
             Booking.tenant_id == tenant_id,
             Booking.rate_plan_id == rate_plan_id,
-        ).limit(1),
+        )
+        .limit(1),
     )
     if ref is not None:
         raise RatePlanServiceError(

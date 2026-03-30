@@ -69,13 +69,10 @@ async def list_rooms(
         Room.deleted_at.is_(None),
     )
     if property_id is not None:
-        stmt = (
-            stmt.join(
-                RoomType,
-                (RoomType.tenant_id == Room.tenant_id)
-                & (RoomType.id == Room.room_type_id),
-            ).where(RoomType.property_id == property_id)
-        )
+        stmt = stmt.join(
+            RoomType,
+            (RoomType.tenant_id == Room.tenant_id) & (RoomType.id == Room.room_type_id),
+        ).where(RoomType.property_id == property_id)
     stmt = stmt.order_by(Room.name.asc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
@@ -224,4 +221,3 @@ async def soft_delete_room(
     room.deleted_at = datetime.now(UTC)
     await session.flush()
     await recalculate_ledger_total_rooms(session, tenant_id, room.room_type_id)
-

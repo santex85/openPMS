@@ -19,9 +19,13 @@ async def count_rooms_for_room_type(
     tenant_id: UUID,
     room_type_id: UUID,
 ) -> int:
-    stmt = select(func.count()).select_from(Room).where(
-        Room.tenant_id == tenant_id,
-        Room.room_type_id == room_type_id,
+    stmt = (
+        select(func.count())
+        .select_from(Room)
+        .where(
+            Room.tenant_id == tenant_id,
+            Room.room_type_id == room_type_id,
+        )
     )
     result = await session.execute(stmt)
     return int(result.scalar_one())

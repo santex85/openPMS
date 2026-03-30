@@ -25,6 +25,15 @@ class GuestRead(BaseModel):
     updated_at: datetime
 
 
+class GuestListPage(BaseModel):
+    """Paginated guest list (GET /guests)."""
+
+    items: list[GuestRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class GuestCreate(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=255)
     last_name: str = Field(..., min_length=1, max_length=255)

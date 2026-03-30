@@ -4,7 +4,16 @@ from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
@@ -19,6 +28,7 @@ from app.schemas.bookings import (
     BookingCreateRequest,
     BookingCreateResponse,
     BookingPatchRequest,
+    BookingTapePage,
     BookingTapeRead,
 )
 from app.schemas.folio import (
@@ -36,6 +46,7 @@ from app.services.booking_service import (
     InvalidBookingContextError,
     PatchBookingError,
     create_booking,
+    get_booking_tape,
     list_bookings_enriched,
     patch_booking,
 )
@@ -54,6 +65,7 @@ from app.services.webhook_runner import (
     run_booking_created_webhook,
     run_booking_patch_webhooks,
 )
+
 
 def _audit_patch_values(data: dict) -> dict:
     out: dict[str, object] = {}
@@ -79,7 +91,7 @@ BookingsWriteRolesDep = Annotated[
 ]
 
 
-@router.get("", response_model=list[BookingTapeRead])
+@router.get("", response_model=BookingTapePage)
 async def get_bookings(
     request: Request,
     _: BookingsReadRolesDep,
@@ -89,7 +101,9 @@ async def get_bookings(
     start_date: date = Query(..., description="Inclusive window start (night date)"),
     end_date: date = Query(..., description="Inclusive window end (night date)"),
     status: str | None = Query(None, description="Filter by booking status"),
-) -> list[BookingTapeRead]:
+    limit: int = Query(100, ge=1, le=500, description="Page size"),
+    offset: int = Query(0, ge=0, description="Rows to skip"),
+) -> BookingTapePage:
     role = getattr(request.state, "user_role", None)
     if role is not None and role.lower() == "housekeeper":
         today = datetime.now(UTC).date()
@@ -103,14 +117,45 @@ async def get_bookings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="start_date must be on or before end_date",
         )
-    return await list_bookings_enriched(
+    items, total = await list_bookings_enriched(
         session,
         tenant_id,
         property_id=property_id,
         start_date=start_date,
         end_date=end_date,
         status_filter=status,
+        limit=limit,
+        offset=offset,
     )
+    return BookingTapePage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/{booking_id}",
+    response_model=BookingTapeRead,
+    summary="Get one booking by id",
+    description=(
+        "Returns the same shape as the bookings tape list (guest, stay dates, room). "
+        "Use when the booking is outside the list window."
+    ),
+)
+async def get_booking_by_id(
+    _: BookingsReadRolesDep,
+    booking_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> BookingTapeRead:
+    row = await get_booking_tape(session, tenant_id, booking_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="booking not found"
+        )
+    return row
 
 
 @router.get(
@@ -227,7 +272,9 @@ async def patch_booking_by_id(
 
     b_before = await load_booking_for_webhook(session, tenant_id, booking_id)
     if b_before is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="booking not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="booking not found"
+        )
     snap_before = booking_quick_snapshot(b_before)
 
     try:
@@ -274,7 +321,7 @@ async def patch_booking_by_id(
     if {"check_in", "check_out"} & patch_data.keys():
         avail_touch = True
     st = patch_data.get("status")
-    if st is not None and st.strip().lower() == "cancelled":
+    if st is not None and st.strip().lower() in ("cancelled", "no_show"):
         avail_touch = True
     if avail_touch and b_before is not None and b_after is not None:
         rb = {ln.room_type_id for ln in b_before.lines}

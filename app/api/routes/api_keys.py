@@ -17,7 +17,12 @@ from app.schemas.api_keys import (
     ApiKeyPatchRequest,
     ApiKeyRead,
 )
-from app.services.api_key_service import ApiKeyServiceError, create_api_key, list_api_keys, patch_api_key
+from app.services.api_key_service import (
+    ApiKeyServiceError,
+    create_api_key,
+    list_api_keys,
+    patch_api_key,
+)
 from app.services.audit_service import record_audit
 
 router = APIRouter()

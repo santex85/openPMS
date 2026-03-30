@@ -31,4 +31,3 @@ class HousekeepingPatchResponse(BaseModel):
     housekeeping_status: str
     housekeeping_priority: str
     model_config = ConfigDict(extra="forbid")
-

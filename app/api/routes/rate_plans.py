@@ -9,7 +9,14 @@ from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATE_PLANS_READ, RATE_PLANS_WRITE
 from app.schemas.rate_plan import RatePlanCreate, RatePlanPatch, RatePlanRead
 from app.services.audit_service import record_audit
-from app.services.rate_plan_service import RatePlanServiceError, create_rate_plan, delete_rate_plan, get_rate_plan, list_rate_plans, patch_rate_plan
+from app.services.rate_plan_service import (
+    RatePlanServiceError,
+    create_rate_plan,
+    delete_rate_plan,
+    get_rate_plan,
+    list_rate_plans,
+    patch_rate_plan,
+)
 
 router = APIRouter()
 
@@ -23,7 +30,6 @@ RatePlanWriteRolesDep = Annotated[
     Depends(require_roles("owner", "manager")),
     Depends(require_scopes(RATE_PLANS_WRITE)),
 ]
-
 
 
 @router.get("", response_model=list[RatePlanRead])
@@ -46,7 +52,9 @@ async def get_rate_plan_by_id(
 ) -> RatePlanRead:
     row = await get_rate_plan(session, tenant_id, rate_plan_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rate plan not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="rate plan not found"
+        )
     return RatePlanRead.model_validate(row)
 
 

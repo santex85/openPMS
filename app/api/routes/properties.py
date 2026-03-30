@@ -100,4 +100,3 @@ async def patch_property(
         new_values=body.model_dump(exclude_unset=True, mode="json"),
     )
     return PropertyRead.model_validate(prop)
-

@@ -106,7 +106,9 @@ def tenant_isolation_booking_scenario(db_engine):
     async def _seed() -> dict:
         tenant_a = uuid4()
         tenant_b = uuid4()
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 for tid, label in ((tenant_a, "TenantA"), (tenant_b, "TenantB")):

@@ -79,6 +79,7 @@ async def deliver_to_subscription(
         "X-Webhook-Signature": f"sha256={signature}",
     }
 
+    # One AsyncClient for all retry attempts (connection reuse).
     async with httpx.AsyncClient(timeout=30.0) as client:
         for attempt_idx in range(3):
             attempt_no = attempt_idx + 1

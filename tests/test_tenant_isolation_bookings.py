@@ -20,7 +20,9 @@ def test_tenant_b_lists_empty_bookings_when_only_tenant_a_has_bookings(
         headers=auth_headers(tenant_b),
     )
     assert response.status_code == 200
-    assert response.json() == []
+    body = response.json()
+    assert body["items"] == []
+    assert body["total"] == 0
 
 
 def test_tenant_a_sees_own_booking(
@@ -42,6 +44,7 @@ def test_tenant_a_sees_own_booking(
     )
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["id"] == booking_id
-    assert data[0]["tenant_id"] == str(tenant_a)
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == booking_id
+    assert data["items"][0]["tenant_id"] == str(tenant_a)

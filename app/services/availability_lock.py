@@ -13,14 +13,18 @@ from app.models.rates.availability_ledger import AvailabilityLedger
 class LedgerNotSeededError(Exception):
     """Not all stay nights have a persisted availability_ledger row."""
 
-    def __init__(self, message: str = "availability ledger not seeded for one or more dates") -> None:
+    def __init__(
+        self, message: str = "availability ledger not seeded for one or more dates"
+    ) -> None:
         super().__init__(message)
 
 
 class InsufficientInventoryError(Exception):
     """Not enough sellable rooms for at least one night."""
 
-    def __init__(self, message: str = "insufficient inventory for one or more dates") -> None:
+    def __init__(
+        self, message: str = "insufficient inventory for one or more dates"
+    ) -> None:
         super().__init__(message)
 
 

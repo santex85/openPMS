@@ -1,6 +1,5 @@
 """Sum nightly rates from the rates table for a stay."""
 
-from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID

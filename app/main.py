@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api.routes import (
     api_keys,
@@ -22,6 +24,7 @@ from app.api.routes import (
     webhooks,
 )
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.tenant_jwt import TenantJwtMiddleware
 
@@ -52,21 +55,44 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         openapi_tags=[
-            {"name": "auth", "description": "Tenant registration, login, token refresh, user invite."},
-            {"name": "bookings", "description": "Bookings, folio, triggers webhooks on create/update."},
+            {
+                "name": "auth",
+                "description": "Tenant registration, login, token refresh, user invite.",
+            },
+            {
+                "name": "bookings",
+                "description": "Bookings, folio, triggers webhooks on create/update.",
+            },
             {"name": "guests", "description": "Guest CRM and profiles."},
-            {"name": "housekeeping", "description": "Room housekeeping board and status updates."},
-            {"name": "inventory", "description": "Availability grid and blocked-room overrides."},
+            {
+                "name": "housekeeping",
+                "description": "Room housekeeping board and status updates.",
+            },
+            {
+                "name": "inventory",
+                "description": "Availability grid and blocked-room overrides.",
+            },
             {"name": "rates", "description": "Nightly rate read/write."},
             {"name": "properties", "description": "Properties CRUD."},
             {"name": "room-types", "description": "Room types per property."},
             {"name": "rooms", "description": "Physical rooms."},
             {"name": "rate-plans", "description": "Rate plans per property."},
-            {"name": "api-keys", "description": "Integration API keys (JWT-only management)."},
-            {"name": "webhooks", "description": "HTTPS webhook subscriptions and delivery logs (JWT-only)."},
-            {"name": "audit", "description": "Append-only audit log read API (owner / manager)."},
+            {
+                "name": "api-keys",
+                "description": "Integration API keys (JWT-only management).",
+            },
+            {
+                "name": "webhooks",
+                "description": "HTTPS webhook subscriptions and delivery logs (JWT-only).",
+            },
+            {
+                "name": "audit",
+                "description": "Append-only audit log read API (owner / manager).",
+            },
         ],
     )
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     application.add_middleware(TenantJwtMiddleware)
     application.add_middleware(
         CORSMiddleware,

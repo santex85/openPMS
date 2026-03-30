@@ -7,9 +7,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import GUESTS_READ, GUESTS_WRITE
-from app.schemas.guest import GuestCreate, GuestDetailRead, GuestPatch, GuestRead
+from app.schemas.guest import (
+    GuestCreate,
+    GuestDetailRead,
+    GuestListPage,
+    GuestPatch,
+    GuestRead,
+)
 from app.services.audit_service import record_audit
-from app.services.guest_service import GuestServiceError, create_guest, get_guest_with_booking_summaries, list_guests, patch_guest
+from app.services.guest_service import (
+    GuestServiceError,
+    create_guest,
+    get_guest_with_booking_summaries,
+    list_guests,
+    patch_guest,
+)
 
 router = APIRouter()
 
@@ -25,15 +37,24 @@ GuestWriteRolesDep = Annotated[
 ]
 
 
-@router.get("", response_model=list[GuestRead])
+@router.get("", response_model=GuestListPage)
 async def get_guests(
     _: GuestReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
-    q: str | None = Query(None, description="Search first name, last name, email, phone"),
-) -> list[GuestRead]:
-    rows = await list_guests(session, tenant_id, q=q)
-    return [GuestRead.model_validate(r) for r in rows]
+    q: str | None = Query(
+        None, description="Search first name, last name, email, phone"
+    ),
+    limit: int = Query(100, ge=1, le=500, description="Page size"),
+    offset: int = Query(0, ge=0, description="Rows to skip"),
+) -> GuestListPage:
+    rows, total = await list_guests(session, tenant_id, q=q, limit=limit, offset=offset)
+    return GuestListPage(
+        items=[GuestRead.model_validate(r) for r in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{guest_id}", response_model=GuestDetailRead)

@@ -32,9 +32,7 @@ async def list_properties(
     tenant_id: UUID,
 ) -> list[Property]:
     stmt = (
-        select(Property)
-        .where(Property.tenant_id == tenant_id)
-        .order_by(Property.name)
+        select(Property).where(Property.tenant_id == tenant_id).order_by(Property.name)
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

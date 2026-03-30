@@ -1,5 +1,6 @@
 """Create booking: pricing, ledger lock, guest, booking, lines, folio."""
 
+from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -32,7 +33,34 @@ from app.services.availability_lock import (
 )
 from app.services.folio_service import compute_folio_balance
 from app.services.pricing_service import MissingRatesError, sum_rates_for_stay
+from app.domain.booking_status import (
+    BookingStatusTransitionError,
+    normalize_booking_status,
+    validate_status_transition,
+)
 from app.services.stay_dates import MAX_STAY_NIGHTS, iter_stay_nights
+
+
+def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
+    guest = GuestTapeRead(
+        id=row["g_id"],
+        first_name=row["first_name"],
+        last_name=row["last_name"],
+    )
+    return BookingTapeRead(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        property_id=row["property_id"],
+        guest_id=row["guest_id"],
+        status=row["status"],
+        source=row["source"],
+        total_amount=row["total_amount"],
+        guest=guest,
+        check_in_date=row["check_in_date"],
+        check_out_date=row["check_out_date"],
+        room_id=row["room_id"],
+        room_type_id=row["room_type_id"],
+    )
 
 
 class InvalidBookingContextError(Exception):
@@ -79,9 +107,7 @@ async def _get_or_create_guest_for_booking(
         email=email_norm,
         phone=payload.phone.strip(),
         passport_data=(
-            payload.passport_data.strip()
-            if payload.passport_data
-            else None
+            payload.passport_data.strip() if payload.passport_data else None
         ),
     )
     session.add(guest)
@@ -217,7 +243,7 @@ async def create_booking(
         property_id=body.property_id,
         guest_id=guest.id,
         rate_plan_id=body.rate_plan_id,
-        status=body.status.strip(),
+        status=body.status,
         source=body.source.strip(),
         total_amount=total,
     )
@@ -263,23 +289,19 @@ async def list_bookings(
     tenant_id: UUID,
 ) -> list[Booking]:
     stmt = (
-        select(Booking)
-        .where(Booking.tenant_id == tenant_id)
-        .order_by(Booking.id.asc())
+        select(Booking).where(Booking.tenant_id == tenant_id).order_by(Booking.id.asc())
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def list_bookings_enriched(
-    session: AsyncSession,
+def _booking_tape_list_params(
     tenant_id: UUID,
-    *,
     property_id: UUID,
     start_date: date,
     end_date: date,
-    status_filter: str | None = None,
-) -> list[BookingTapeRead]:
+    status_filter: str | None,
+) -> tuple[str, dict[str, object]]:
     status_clause = ""
     params: dict[str, object] = {
         "tenant_id": str(tenant_id),
@@ -290,9 +312,62 @@ async def list_bookings_enriched(
     if status_filter is not None:
         status_clause = " AND b.status = :status"
         params["status"] = status_filter
-
-    sql = text(
+    where = (
         """
+WHERE b.tenant_id = CAST(:tenant_id AS uuid)
+  AND b.property_id = CAST(:property_id AS uuid)
+  AND EXISTS (
+    SELECT 1 FROM booking_lines bl
+    WHERE bl.booking_id = b.id AND bl.tenant_id = b.tenant_id
+      AND bl.date >= :start_date AND bl.date <= :end_date
+  )
+"""
+        + status_clause
+    )
+    return where, params
+
+
+async def list_bookings_enriched(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    property_id: UUID,
+    start_date: date,
+    end_date: date,
+    status_filter: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[BookingTapeRead], int]:
+    where, base_params = _booking_tape_list_params(
+        tenant_id,
+        property_id,
+        start_date,
+        end_date,
+        status_filter,
+    )
+    count_sql = text(
+        "SELECT count(*)::int AS n FROM bookings b\n" + where,
+    )
+    total = int((await session.execute(count_sql, base_params)).scalar_one())
+
+    data_params = dict(base_params)
+    data_params["limit"] = limit
+    data_params["offset"] = offset
+    sql = text(
+        _LINE_AGG_CTE
+        + _BOOKING_TAPE_SELECT
+        + where
+        + """
+ORDER BY b.id
+LIMIT :limit OFFSET :offset
+""",
+    )
+    result = await session.execute(sql, data_params)
+    rows = [_booking_tape_from_mapping(row) for row in result.mappings().all()]
+    return rows, total
+
+
+_LINE_AGG_CTE = """
 WITH line_agg AS (
   SELECT
     tenant_id,
@@ -306,6 +381,9 @@ WITH line_agg AS (
   FROM booking_lines
   GROUP BY tenant_id, booking_id
 )
+"""
+
+_BOOKING_TAPE_SELECT = """
 SELECT
   b.id,
   b.tenant_id,
@@ -324,44 +402,31 @@ SELECT
 FROM bookings b
 JOIN line_agg la ON la.booking_id = b.id AND la.tenant_id = b.tenant_id
 JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
-WHERE b.tenant_id = CAST(:tenant_id AS uuid)
-  AND b.property_id = CAST(:property_id AS uuid)
-  AND EXISTS (
-    SELECT 1 FROM booking_lines bl
-    WHERE bl.booking_id = b.id AND bl.tenant_id = b.tenant_id
-      AND bl.date >= :start_date AND bl.date <= :end_date
-  )
 """
-        + status_clause
+
+
+async def get_booking_tape(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+) -> BookingTapeRead | None:
+    """Single booking tape row by id (any stay dates); None if missing or no lines."""
+    sql = text(
+        _LINE_AGG_CTE
+        + _BOOKING_TAPE_SELECT
         + """
-ORDER BY b.id
+WHERE b.tenant_id = CAST(:tenant_id AS uuid)
+  AND b.id = CAST(:booking_id AS uuid)
 """,
     )
-    result = await session.execute(sql, params)
-    out: list[BookingTapeRead] = []
-    for row in result.mappings().all():
-        guest = GuestTapeRead(
-            id=row["g_id"],
-            first_name=row["first_name"],
-            last_name=row["last_name"],
-        )
-        out.append(
-            BookingTapeRead(
-                id=row["id"],
-                tenant_id=row["tenant_id"],
-                property_id=row["property_id"],
-                guest_id=row["guest_id"],
-                status=row["status"],
-                source=row["source"],
-                total_amount=row["total_amount"],
-                guest=guest,
-                check_in_date=row["check_in_date"],
-                check_out_date=row["check_out_date"],
-                room_id=row["room_id"],
-                room_type_id=row["room_type_id"],
-            ),
-        )
-    return out
+    result = await session.execute(
+        sql,
+        {"tenant_id": str(tenant_id), "booking_id": str(booking_id)},
+    )
+    row = result.mappings().first()
+    if row is None:
+        return None
+    return _booking_tape_from_mapping(row)
 
 
 def _stay_bounds_from_lines(lines: list[BookingLine]) -> tuple[date, date]:
@@ -557,26 +622,30 @@ async def patch_booking(
     lines = list(booking.lines)
 
     status_in = data.get("status")
-    if status_in is not None and status_in.strip().lower() == "cancelled":
-        if booking.status.strip().lower() != "cancelled":
+    if (
+        status_in is not None
+        and normalize_booking_status(str(status_in)) == "cancelled"
+    ):
+        if normalize_booking_status(booking.status) != "cancelled":
+            try:
+                validate_status_transition(booking.status, "cancelled")
+            except BookingStatusTransitionError as exc:
+                raise PatchBookingError(exc.message, status_code=409) from exc
             await _release_booking_inventory(session, tenant_id, booking)
-            booking.status = status_in.strip()
+            booking.status = "cancelled"
             await session.flush()
         return None
 
-    inactive = booking.status.strip().lower() in ("cancelled", "no_show")
+    inactive = normalize_booking_status(booking.status) in ("cancelled", "no_show")
     if inactive:
-        if "status" in data and str(data["status"]).strip().lower() not in (
-            "cancelled",
-            "no_show",
-        ):
-            raise PatchBookingError(
-                "reactivating a cancelled booking is not supported",
-                status_code=409,
-            )
+        if "status" in data:
+            try:
+                validate_status_transition(booking.status, str(data["status"]))
+            except BookingStatusTransitionError as exc:
+                raise PatchBookingError(exc.message, status_code=409) from exc
         if {"check_in", "check_out", "room_id"} & data.keys():
             raise PatchBookingError(
-                "cannot change stay dates or room on a cancelled booking",
+                "cannot change stay dates or room on an inactive booking",
                 status_code=409,
             )
 
@@ -670,9 +739,6 @@ async def patch_booking(
             )
             await session.flush()
 
-    if "status" in data:
-        booking.status = str(data["status"]).strip()
-
     if "room_id" in data:
         await assign_booking_room(
             session,
@@ -681,10 +747,23 @@ async def patch_booking(
             data["room_id"],
         )
 
+    if "status" in data:
+        new_s = normalize_booking_status(str(data["status"]))
+        try:
+            validate_status_transition(booking.status, new_s)
+        except BookingStatusTransitionError as exc:
+            raise PatchBookingError(exc.message, status_code=409) from exc
+        if (
+            new_s == "no_show"
+            and normalize_booking_status(prev_booking_status) == "confirmed"
+        ):
+            await _release_booking_inventory(session, tenant_id, booking)
+        booking.status = new_s
+
     checkout_balance_warning: Decimal | None = None
     if (
-        booking.status.strip().lower() == "checked_out"
-        and prev_booking_status.strip().lower() != "checked_out"
+        normalize_booking_status(booking.status) == "checked_out"
+        and normalize_booking_status(prev_booking_status) != "checked_out"
     ):
         await _mark_assigned_rooms_dirty_on_checkout(
             session,

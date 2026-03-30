@@ -4,16 +4,30 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from pydantic import ValidationError
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
-from app.schemas.availability_override import AvailabilityOverridePutRequest, AvailabilityOverridePutResponse
+from app.schemas.availability_override import (
+    AvailabilityOverridePutRequest,
+    AvailabilityOverridePutResponse,
+)
 from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryParams
 from app.services import availability_service
 from app.services.availability_lock import LedgerNotSeededError
-from app.services.availability_override_service import AvailabilityOverrideError, apply_blocked_rooms_override
+from app.services.availability_override_service import (
+    AvailabilityOverrideError,
+    apply_blocked_rooms_override,
+)
 from app.services.audit_service import record_audit
 from app.services.webhook_runner import run_availability_after_override
 

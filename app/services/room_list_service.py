@@ -19,8 +19,7 @@ async def list_rooms_for_property(
         select(Room)
         .join(
             RoomType,
-            (RoomType.tenant_id == Room.tenant_id)
-            & (RoomType.id == Room.room_type_id),
+            (RoomType.tenant_id == Room.tenant_id) & (RoomType.id == Room.room_type_id),
         )
         .where(
             Room.tenant_id == tenant_id,

@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 class RateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

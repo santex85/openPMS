@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from uuid import UUID, uuid4
 
 from sqlalchemy import exists, select
@@ -17,6 +17,7 @@ from app.schemas.housekeeping import HousekeepingPatchRequest, HousekeepingRoomR
 
 VALID_HK_STATUSES = frozenset({"clean", "dirty", "inspected", "out_of_service"})
 VALID_HK_PRIORITIES = frozenset({"low", "normal", "high", "rush"})
+
 
 class HousekeepingServiceError(Exception):
     def __init__(self, detail: str, *, status_code: int = 400) -> None:
@@ -38,8 +39,7 @@ async def list_rooms_for_housekeeping(
         select(Room, RoomType.name)
         .join(
             RoomType,
-            (RoomType.tenant_id == Room.tenant_id)
-            & (RoomType.id == Room.room_type_id),
+            (RoomType.tenant_id == Room.tenant_id) & (RoomType.id == Room.room_type_id),
         )
         .where(
             Room.tenant_id == tenant_id,
@@ -64,13 +64,10 @@ async def list_rooms_for_housekeeping(
             )
         stmt = stmt.where(Room.housekeeping_priority == hp)
     if filter_date is not None:
-        bl_exists = (
-            exists()
-            .where(
-                BookingLine.tenant_id == Room.tenant_id,
-                BookingLine.room_id == Room.id,
-                BookingLine.date == filter_date,
-            )
+        bl_exists = exists().where(
+            BookingLine.tenant_id == Room.tenant_id,
+            BookingLine.room_id == Room.id,
+            BookingLine.date == filter_date,
         )
         stmt = stmt.where(bl_exists)
 

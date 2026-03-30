@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,11 +27,13 @@ async def list_guests(
     tenant_id: UUID,
     *,
     q: str | None = None,
-) -> list[Guest]:
-    stmt = select(Guest).where(Guest.tenant_id == tenant_id)
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[Guest], int]:
+    filters = [Guest.tenant_id == tenant_id]
     if q is not None and q.strip():
         term = f"%{q.strip()}%"
-        stmt = stmt.where(
+        filters.append(
             or_(
                 Guest.first_name.ilike(term),
                 Guest.last_name.ilike(term),
@@ -40,9 +41,17 @@ async def list_guests(
                 Guest.phone.ilike(term),
             ),
         )
-    stmt = stmt.order_by(Guest.updated_at.desc(), Guest.last_name.asc())
+    count_stmt = select(func.count()).select_from(Guest).where(*filters)
+    total = int(await session.scalar(count_stmt) or 0)
+    stmt = (
+        select(Guest)
+        .where(*filters)
+        .order_by(Guest.updated_at.desc(), Guest.last_name.asc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total
 
 
 async def get_guest(
@@ -108,12 +117,9 @@ async def get_guest_with_booking_summaries(
         return guest, []
 
     bid_list = [b.id for b in bookings]
-    ln_stmt = (
-        select(BookingLine.booking_id, BookingLine.date)
-        .where(
-            BookingLine.tenant_id == tenant_id,
-            BookingLine.booking_id.in_(bid_list),
-        )
+    ln_stmt = select(BookingLine.booking_id, BookingLine.date).where(
+        BookingLine.tenant_id == tenant_id,
+        BookingLine.booking_id.in_(bid_list),
     )
     ln_result = await session.execute(ln_stmt)
     by_booking: dict[UUID, list] = {bid: [] for bid in bid_list}

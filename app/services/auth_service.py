@@ -6,11 +6,11 @@ from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 
-import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.jwt_keys import encode_token
 from app.core.security import (
     hash_password,
     hash_refresh_token,
@@ -51,11 +51,7 @@ def _issue_access_token(settings: Settings, user: User) -> str:
         "iat": now,
         "exp": exp,
     }
-    return jwt.encode(
-        payload,
-        settings.jwt_secret,
-        algorithm=settings.jwt_algorithm,
-    )
+    return encode_token(settings, payload)
 
 
 async def _persist_refresh_pair(

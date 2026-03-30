@@ -17,7 +17,9 @@ class WebhookSubscription(Base):
             ["tenants.id"],
             name="fk_webhook_subscriptions_tenant_id_tenants",
         ),
-        UniqueConstraint("tenant_id", "id", name="uq_webhook_subscriptions_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_webhook_subscriptions_tenant_id_id"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(

@@ -268,5 +268,8 @@ async def run_booking_patch_availability_refresh(
     if len(rb) != 1 or rb != ra:
         return
     rt_id = next(iter(rb))
-    dates = sorted({ln.date for ln in booking_before.lines} | {ln.date for ln in booking_after.lines})
+    dates = sorted(
+        {ln.date for ln in booking_before.lines}
+        | {ln.date for ln in booking_after.lines}
+    )
     await emit_availability_for_dates(factory, tenant_id, rt_id, dates)

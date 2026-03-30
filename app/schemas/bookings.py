@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -54,11 +55,9 @@ class BookingCreateRequest(BaseModel):
         description="Morning of departure (exclusive end, like hotel PMS).",
     )
     guest: GuestPayload
-    status: str = Field(
+    status: Literal["pending", "confirmed"] = Field(
         default="confirmed",
-        max_length=64,
-        description="Initial booking status.",
-        examples=["confirmed"],
+        description="Initial booking status (lifecycle starts pending or confirmed).",
     )
     source: str = Field(
         default="api",
@@ -158,3 +157,12 @@ class BookingTapeRead(BaseModel):
     check_out_date: date | None = None
     room_id: UUID | None = None
     room_type_id: UUID | None = None
+
+
+class BookingTapePage(BaseModel):
+    """Paginated bookings tape (GET /bookings)."""
+
+    items: list[BookingTapeRead]
+    total: int
+    limit: int
+    offset: int

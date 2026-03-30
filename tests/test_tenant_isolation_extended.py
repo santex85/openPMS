@@ -22,7 +22,9 @@ def test_tenant_b_guest_list_empty(
     tenant_b = tenant_isolation_booking_scenario["tenant_b"]
     r = client.get("/guests", headers=auth_headers(tenant_b))
     assert r.status_code == 200
-    assert r.json() == []
+    body = r.json()
+    assert body["items"] == []
+    assert body["total"] == 0
 
 
 def test_tenant_b_cannot_read_tenant_a_guest_detail(
@@ -44,13 +46,17 @@ def test_tenant_b_cannot_read_tenant_a_guest_detail(
     tenant_b: UUID = tenant_isolation_booking_scenario["tenant_b"]
 
     async def _gid() -> str:
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 from sqlalchemy import text
 
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_a)},
                 )
                 gid = await session.scalar(

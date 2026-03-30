@@ -3,7 +3,6 @@
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
-import jwt
 from jwt.exceptions import InvalidTokenError, PyJWTError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +12,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.audit_context import bind_audit_context, reset_audit_context
 from app.core.config import get_settings
+from app.core.jwt_keys import decode_access_token
 from app.schemas.auth import UnauthorizedResponse
 from app.services.api_key_service import hash_api_key
 
@@ -74,19 +74,13 @@ async def _authenticate_jwt(request: Request) -> bool:
         return False
 
     settings = get_settings()
-    decode_kwargs: dict[str, object] = {
-        "algorithms": [settings.jwt_algorithm],
-    }
-    if settings.jwt_audience is not None:
-        decode_kwargs["audience"] = settings.jwt_audience
-    if settings.jwt_issuer is not None:
-        decode_kwargs["issuer"] = settings.jwt_issuer
 
     try:
-        payload = jwt.decode(
+        payload = decode_access_token(
+            settings,
             token,
-            settings.jwt_secret,
-            **decode_kwargs,
+            audience=settings.jwt_audience,
+            issuer=settings.jwt_issuer,
         )
     except InvalidTokenError:
         raise ValueError("invalid_token")
@@ -140,7 +134,9 @@ async def _authenticate_api_key(request: Request, session: AsyncSession) -> bool
     request.state.tenant_id = tenant_id
     request.state.auth_source = "api_key"
     request.state.api_key_id = key_id
-    request.state.api_key_scopes = [str(s).strip().lower() for s in scopes if str(s).strip()]
+    request.state.api_key_scopes = [
+        str(s).strip().lower() for s in scopes if str(s).strip()
+    ]
     return True
 
 

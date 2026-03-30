@@ -45,7 +45,10 @@ async def compute_folio_balance(
     charge_sum = func.coalesce(
         func.sum(
             case(
-                (FolioTransaction.transaction_type == "Charge", FolioTransaction.amount),
+                (
+                    FolioTransaction.transaction_type == "Charge",
+                    FolioTransaction.amount,
+                ),
                 else_=0,
             ),
         ),
@@ -54,18 +57,18 @@ async def compute_folio_balance(
     payment_sum = func.coalesce(
         func.sum(
             case(
-                (FolioTransaction.transaction_type == "Payment", FolioTransaction.amount),
+                (
+                    FolioTransaction.transaction_type == "Payment",
+                    FolioTransaction.amount,
+                ),
                 else_=0,
             ),
         ),
         0,
     )
-    stmt = (
-        select(charge_sum - payment_sum)
-        .where(
-            FolioTransaction.tenant_id == tenant_id,
-            FolioTransaction.booking_id == booking_id,
-        )
+    stmt = select(charge_sum - payment_sum).where(
+        FolioTransaction.tenant_id == tenant_id,
+        FolioTransaction.booking_id == booking_id,
     )
     raw = await session.scalar(stmt)
     if raw is None:

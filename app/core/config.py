@@ -1,8 +1,11 @@
 """Application settings loaded from environment."""
 
-from functools import lru_cache
+from __future__ import annotations
 
-from pydantic import Field
+from functools import lru_cache
+from typing import Self
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,8 +17,19 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    jwt_secret: str
+    jwt_secret: str = Field(
+        default="",
+        description="HS256 shared secret (min 32 chars). Unused when jwt_algorithm is RS256.",
+    )
     jwt_algorithm: str = "HS256"
+    jwt_private_key_pem: str | None = Field(
+        default=None,
+        description="PEM RSA private key for RS256 signing (production).",
+    )
+    jwt_public_key_pem: str | None = Field(
+        default=None,
+        description="PEM RSA public key for RS256 verify (optional if private key is set).",
+    )
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
     access_token_ttl_minutes: int = Field(
@@ -40,6 +54,24 @@ class Settings(BaseSettings):
         default=False,
         description="Set Secure flag on refresh cookie (enable in production over HTTPS).",
     )
+
+    @model_validator(mode="after")
+    def validate_jwt_config(self) -> Self:
+        alg = self.jwt_algorithm.upper()
+        if alg == "HS256":
+            if len(self.jwt_secret) < 32:
+                msg = "jwt_secret must be at least 32 characters for HS256"
+                raise ValueError(msg)
+        elif alg == "RS256":
+            if (
+                self.jwt_private_key_pem is None
+                or not str(self.jwt_private_key_pem).strip()
+            ):
+                msg = "jwt_private_key_pem is required when jwt_algorithm is RS256"
+                raise ValueError(msg)
+        else:
+            raise ValueError(f"Unsupported jwt_algorithm: {self.jwt_algorithm}")
+        return self
 
     def cors_allowed_origins(self) -> list[str]:
         return [part.strip() for part in self.cors_origins.split(",") if part.strip()]

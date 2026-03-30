@@ -4,13 +4,21 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATES_READ, RATES_WRITE
-from app.schemas.nightly_rates import BulkRatesPutRequest, BulkRatesPutResponse, RateRead
+from app.schemas.nightly_rates import (
+    BulkRatesPutRequest,
+    BulkRatesPutResponse,
+    RateRead,
+)
 from app.services.audit_service import record_audit
-from app.services.rates_admin_service import RatesServiceError, bulk_upsert_rates, list_rates_for_period
+from app.services.rates_admin_service import (
+    RatesServiceError,
+    bulk_upsert_rates,
+    list_rates_for_period,
+)
 from app.services.webhook_runner import run_rate_updated_webhooks
 
 router = APIRouter(prefix="/rates", tags=["rates"])
@@ -25,7 +33,6 @@ RatesWriteRolesDep = Annotated[
     Depends(require_roles("owner", "manager")),
     Depends(require_scopes(RATES_WRITE)),
 ]
-
 
 
 @router.get("", response_model=list[RateRead])

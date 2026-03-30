@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import (
     OptionalUserIdWriteDep,
@@ -20,7 +20,11 @@ from app.schemas.housekeeping import (
     HousekeepingRoomRead,
 )
 from app.services.audit_service import record_audit
-from app.services.housekeeping_service import HousekeepingServiceError, list_rooms_for_housekeeping, patch_room_housekeeping
+from app.services.housekeeping_service import (
+    HousekeepingServiceError,
+    list_rooms_for_housekeeping,
+    patch_room_housekeeping,
+)
 
 router = APIRouter(prefix="/housekeeping", tags=["housekeeping"])
 

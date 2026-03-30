@@ -13,14 +13,18 @@ class AuditContext:
     ip_address: str | None
 
 
-_audit_ctx: ContextVar[AuditContext | None] = ContextVar("openpms_audit_ctx", default=None)
+_audit_ctx: ContextVar[AuditContext | None] = ContextVar(
+    "openpms_audit_ctx", default=None
+)
 
 
 def get_audit_context() -> AuditContext | None:
     return _audit_ctx.get()
 
 
-def bind_audit_context(*, user_id: UUID | None, ip_address: str | None) -> Token[AuditContext | None]:
+def bind_audit_context(
+    *, user_id: UUID | None, ip_address: str | None
+) -> Token[AuditContext | None]:
     return _audit_ctx.set(AuditContext(user_id=user_id, ip_address=ip_address))
 
 

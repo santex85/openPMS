@@ -1,0 +1,9 @@
+{
+    # Let's Encrypt account email (required for public HTTPS).
+    email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+    encode gzip
+    reverse_proxy api:8000
+}

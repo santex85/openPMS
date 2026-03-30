@@ -14,6 +14,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.db.rls_session import tenant_transaction_session
 from app.schemas.auth import (
     AccessTokenResponse,
@@ -51,6 +52,7 @@ InviteManagerDep = Annotated[
     status_code=status.HTTP_201_CREATED,
     response_model_exclude_none=True,
 )
+@limiter.limit("20/minute")
 async def post_register(
     request: Request,
     response: Response,
@@ -83,6 +85,7 @@ async def post_register(
 
 
 @router.post("/login", response_model=AuthLoginPublicResponse)
+@limiter.limit("30/minute")
 async def post_login(
     request: Request,
     response: Response,
@@ -108,6 +111,7 @@ async def post_login(
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
+@limiter.limit("60/minute")
 async def post_refresh(
     request: Request,
     response: Response,
@@ -122,7 +126,9 @@ async def post_refresh(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="missing refresh token",
         )
-    body_filled = AuthRefreshRequest(tenant_id=body.tenant_id, refresh_token=str(raw).strip())
+    body_filled = AuthRefreshRequest(
+        tenant_id=body.tenant_id, refresh_token=str(raw).strip()
+    )
     factory = request.app.state.async_session_factory
     try:
         async with tenant_transaction_session(factory, body.tenant_id) as session:
@@ -134,7 +140,9 @@ async def post_refresh(
             detail=exc.detail,
         ) from exc
     attach_refresh_cookie(response, settings, full.refresh_token)
-    return AccessTokenResponse(access_token=full.access_token, token_type=full.token_type)
+    return AccessTokenResponse(
+        access_token=full.access_token, token_type=full.token_type
+    )
 
 
 @router.get("/me", response_model=UserRead)

@@ -49,7 +49,9 @@ def _normalize_events(events: list[str]) -> list[str]:
             )
         out.append(t)
     if not out:
-        raise WebhookSubscriptionError("at least one event is required", status_code=422)
+        raise WebhookSubscriptionError(
+            "at least one event is required", status_code=422
+        )
     dedup: list[str] = []
     seen: set[str] = set()
     for e in out:
@@ -129,13 +131,10 @@ async def list_matching_subscriptions(
     event_type: str,
 ) -> list[WebhookSubscription]:
     ev = event_type.strip().lower()
-    stmt = (
-        select(WebhookSubscription)
-        .where(
-            WebhookSubscription.tenant_id == tenant_id,
-            WebhookSubscription.is_active.is_(True),
-            WebhookSubscription.events.contains([ev]),
-        )
+    stmt = select(WebhookSubscription).where(
+        WebhookSubscription.tenant_id == tenant_id,
+        WebhookSubscription.is_active.is_(True),
+        WebhookSubscription.events.contains([ev]),
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

@@ -1,6 +1,5 @@
 """Webhook subscription API and documented outbound payload shapes (OpenAPI)."""
 
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -20,7 +19,9 @@ class WebhookSubscriptionCreate(BaseModel):
         description="Event names to subscribe to.",
         examples=[["booking.created", "booking.updated"]],
     )
-    is_active: bool = Field(True, description="Inactive subscriptions receive no deliveries.")
+    is_active: bool = Field(
+        True, description="Inactive subscriptions receive no deliveries."
+    )
 
     model_config = ConfigDict(extra="forbid")
 

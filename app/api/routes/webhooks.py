@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_jwt_user, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    require_jwt_user,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import WEBHOOKS_READ, WEBHOOKS_WRITE
 from app.schemas.webhooks import (
     WebhookSubscriptionCreate,
@@ -14,7 +20,12 @@ from app.schemas.webhooks import (
     WebhookSubscriptionRead,
 )
 from app.services.audit_service import record_audit
-from app.services.webhook_subscription_service import WebhookSubscriptionError, create_subscription, list_subscriptions, patch_subscription
+from app.services.webhook_subscription_service import (
+    WebhookSubscriptionError,
+    create_subscription,
+    list_subscriptions,
+    patch_subscription,
+)
 
 router = APIRouter()
 

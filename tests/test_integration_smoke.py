@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import time
+from datetime import date, time
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,6 +18,8 @@ from app.models.core.property import Property
 from app.models.core.room import Room
 from app.models.core.room_type import RoomType
 from app.models.core.tenant import Tenant
+from app.models.rates.rate import Rate
+from app.models.rates.rate_plan import RatePlan
 
 
 def _database_url() -> str | None:
@@ -76,6 +79,23 @@ async def _seed_smoke_tenant() -> dict[str, UUID]:
             )
             session.add(room_type)
             await session.flush()
+            rate_plan = RatePlan(
+                tenant_id=tenant_id,
+                property_id=prop.id,
+                name="BAR",
+                cancellation_policy="none",
+            )
+            session.add(rate_plan)
+            await session.flush()
+            session.add(
+                Rate(
+                    tenant_id=tenant_id,
+                    room_type_id=room_type.id,
+                    rate_plan_id=rate_plan.id,
+                    date=date(2026, 6, 1),
+                    price=Decimal("99.00"),
+                ),
+            )
             room = Room(
                 tenant_id=tenant_id,
                 room_type_id=room_type.id,
@@ -88,6 +108,8 @@ async def _seed_smoke_tenant() -> dict[str, UUID]:
             await session.flush()
             property_id = prop.id
             room_id = room.id
+            room_type_id = room_type.id
+            rate_plan_id = rate_plan.id
 
     await engine.dispose()
     return {
@@ -95,6 +117,8 @@ async def _seed_smoke_tenant() -> dict[str, UUID]:
         "owner_id": owner_id,
         "property_id": property_id,
         "room_id": room_id,
+        "room_type_id": room_type_id,
+        "rate_plan_id": rate_plan_id,
     }
 
 
@@ -115,7 +139,9 @@ def test_guests_search_and_create(
     h = auth_headers_user(tid, oid, role="owner")
     r = client.get("/guests", headers=h, params={"q": "nobody"})
     assert r.status_code == 200
-    assert r.json() == []
+    gj = r.json()
+    assert gj["items"] == []
+    assert gj["total"] == 0
     cr = client.post(
         "/guests",
         headers=h,
@@ -223,6 +249,74 @@ def test_webhook_subscription_create(
     assert data["url"] == "https://hooks.example.com/openpms"
     assert "secret" in data
     assert "booking.created" in data["events"]
+
+
+def test_rate_plans_and_rates_list(
+    client,
+    smoke_scenario: dict[str, UUID],
+    auth_headers_user,
+) -> None:
+    tid = smoke_scenario["tenant_id"]
+    oid = smoke_scenario["owner_id"]
+    pid = smoke_scenario["property_id"]
+    rt_id = smoke_scenario["room_type_id"]
+    rp_id = smoke_scenario["rate_plan_id"]
+    h = auth_headers_user(tid, oid, role="owner")
+    r1 = client.get("/rate-plans", headers=h, params={"property_id": str(pid)})
+    assert r1.status_code == 200
+    assert any(str(x["id"]) == str(rp_id) for x in r1.json())
+    r2 = client.get(
+        "/rates",
+        headers=h,
+        params={
+            "room_type_id": str(rt_id),
+            "rate_plan_id": str(rp_id),
+            "start_date": "2026-06-01",
+            "end_date": "2026-06-01",
+        },
+    )
+    assert r2.status_code == 200
+    assert len(r2.json()) >= 1
+
+
+def test_inventory_override_errors_without_ledger(
+    client,
+    smoke_scenario: dict[str, UUID],
+    auth_headers_user,
+) -> None:
+    tid = smoke_scenario["tenant_id"]
+    oid = smoke_scenario["owner_id"]
+    rt_id = smoke_scenario["room_type_id"]
+    h = auth_headers_user(tid, oid, role="owner")
+    r = client.put(
+        "/inventory/availability/overrides",
+        headers=h,
+        json={
+            "room_type_id": str(rt_id),
+            "start_date": "2026-06-01",
+            "end_date": "2026-06-02",
+            "blocked_rooms": 1,
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_rooms_create_second_room(
+    client,
+    smoke_scenario: dict[str, UUID],
+    auth_headers_user,
+) -> None:
+    tid = smoke_scenario["tenant_id"]
+    oid = smoke_scenario["owner_id"]
+    rt_id = smoke_scenario["room_type_id"]
+    h = auth_headers_user(tid, oid, role="owner")
+    r = client.post(
+        "/rooms",
+        headers=h,
+        json={"room_type_id": str(rt_id), "name": "102", "status": "available"},
+    )
+    assert r.status_code == 201
+    assert r.json()["name"] == "102"
 
 
 def test_audit_log_lists_after_mutation(
