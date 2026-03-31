@@ -371,7 +371,8 @@ _LINE_AGG_CTE_IN_WINDOW = """
 WITH touch AS (
   SELECT DISTINCT tenant_id, booking_id
   FROM booking_lines
-  WHERE date >= :start_date AND date <= :end_date
+  WHERE tenant_id = CAST(:tenant_id AS uuid)
+    AND date >= :start_date AND date <= :end_date
 ),
 line_agg AS (
   SELECT
