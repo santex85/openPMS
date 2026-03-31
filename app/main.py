@@ -13,6 +13,7 @@ from app.api.routes import (
     audit_log,
     auth,
     bookings,
+    dashboard,
     guests,
     housekeeping,
     inventory,
@@ -57,13 +58,17 @@ def create_app() -> FastAPI:
         openapi_tags=[
             {
                 "name": "auth",
-                "description": "Tenant registration, login, token refresh, user invite.",
+                "description": "Tenant registration, login, token refresh, user invite, list users.",
             },
             {
                 "name": "bookings",
                 "description": "Bookings, folio, triggers webhooks on create/update.",
             },
             {"name": "guests", "description": "Guest CRM and profiles."},
+            {
+                "name": "dashboard",
+                "description": "Property operational KPIs (arrivals, departures, occupancy, housekeeping).",
+            },
             {
                 "name": "housekeeping",
                 "description": "Room housekeeping board and status updates.",
@@ -138,6 +143,11 @@ def create_app() -> FastAPI:
         guests.router,
         prefix="/guests",
         tags=["guests"],
+    )
+    application.include_router(
+        dashboard.router,
+        prefix="/dashboard",
+        tags=["dashboard"],
     )
     application.include_router(housekeeping.router)
     application.include_router(

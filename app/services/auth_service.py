@@ -192,6 +192,18 @@ async def get_user(
     )
 
 
+async def list_users(
+    session: AsyncSession,
+    tenant_id: UUID,
+) -> list[User]:
+    result = await session.execute(
+        select(User)
+        .where(User.tenant_id == tenant_id)
+        .order_by(User.email.asc()),
+    )
+    return list(result.scalars().all())
+
+
 _INVITABLE_ROLES = frozenset({"manager", "viewer", "housekeeper", "receptionist"})
 
 

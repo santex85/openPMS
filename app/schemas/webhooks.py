@@ -1,5 +1,6 @@
 """Webhook subscription API and documented outbound payload shapes (OpenAPI)."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -24,6 +25,20 @@ class WebhookSubscriptionCreate(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+
+class WebhookDeliveryLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    webhook_subscription_id: UUID
+    event_type: str
+    attempt_number: int
+    http_status_code: int | None
+    error_message: str | None
+    payload_json: dict[str, Any]
+    created_at: datetime
 
 
 class WebhookSubscriptionRead(BaseModel):

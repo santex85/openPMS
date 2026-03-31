@@ -3,7 +3,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 
 from app.api.deps import (
     SessionDep,
@@ -13,7 +14,9 @@ from app.api.deps import (
     require_scopes,
 )
 from app.core.api_scopes import WEBHOOKS_READ, WEBHOOKS_WRITE
+from app.models.integrations.webhook_delivery_log import WebhookDeliveryLog
 from app.schemas.webhooks import (
+    WebhookDeliveryLogRead,
     WebhookSubscriptionCreate,
     WebhookSubscriptionCreateResponse,
     WebhookSubscriptionPatch,
@@ -55,6 +58,29 @@ async def list_webhook_subscriptions(
 ) -> list[WebhookSubscriptionRead]:
     rows = await list_subscriptions(session, tenant_id)
     return [WebhookSubscriptionRead.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/delivery-logs",
+    response_model=list[WebhookDeliveryLogRead],
+    summary="List webhook delivery attempts",
+)
+async def list_webhook_delivery_logs(
+    _: WebhooksReadDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[WebhookDeliveryLogRead]:
+    stmt = (
+        select(WebhookDeliveryLog)
+        .where(WebhookDeliveryLog.tenant_id == tenant_id)
+        .order_by(WebhookDeliveryLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(stmt)
+    return [WebhookDeliveryLogRead.model_validate(r) for r in result.scalars()]
 
 
 @router.post(

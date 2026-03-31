@@ -354,7 +354,7 @@ async def list_bookings_enriched(
     data_params["limit"] = limit
     data_params["offset"] = offset
     sql = text(
-        _LINE_AGG_CTE
+        _LINE_AGG_CTE_IN_WINDOW
         + _BOOKING_TAPE_SELECT
         + where
         + """
@@ -366,6 +366,29 @@ LIMIT :limit OFFSET :offset
     rows = [_booking_tape_from_mapping(row) for row in result.mappings().all()]
     return rows, total
 
+
+_LINE_AGG_CTE_IN_WINDOW = """
+WITH touch AS (
+  SELECT DISTINCT tenant_id, booking_id
+  FROM booking_lines
+  WHERE date >= :start_date AND date <= :end_date
+),
+line_agg AS (
+  SELECT
+    bl.tenant_id,
+    bl.booking_id,
+    MIN(bl.date) AS check_in_date,
+    (MAX(bl.date) + INTERVAL '1 day')::date AS check_out_date,
+    COUNT(DISTINCT bl.room_type_id) AS rt_cnt,
+    MIN(bl.room_type_id) AS rt_min,
+    COUNT(DISTINCT bl.room_id) FILTER (WHERE bl.room_id IS NOT NULL) AS rm_cnt,
+    MAX(bl.room_id) FILTER (WHERE bl.room_id IS NOT NULL) AS rm_val
+  FROM booking_lines bl
+  INNER JOIN touch t
+    ON t.tenant_id = bl.tenant_id AND t.booking_id = bl.booking_id
+  GROUP BY bl.tenant_id, bl.booking_id
+)
+"""
 
 _LINE_AGG_CTE = """
 WITH line_agg AS (

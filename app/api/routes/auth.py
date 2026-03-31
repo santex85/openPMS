@@ -32,6 +32,7 @@ from app.services.auth_service import (
     AuthServiceError,
     get_user,
     invite_user,
+    list_users,
     login as login_user,
     refresh_session,
     register_tenant_owner,
@@ -143,6 +144,16 @@ async def post_refresh(
     return AccessTokenResponse(
         access_token=full.access_token, token_type=full.token_type
     )
+
+
+@router.get("/users", response_model=list[UserRead])
+async def get_users(
+    _: InviteManagerDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> list[UserRead]:
+    rows = await list_users(session, tenant_id)
+    return [UserRead.model_validate(r) for r in rows]
 
 
 @router.get("/me", response_model=UserRead)
