@@ -21,7 +21,8 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD:-openpms}@db:5432/${POSTGRES_DB:-openpms}
-      JWT_SECRET: ${JWT_SECRET:-dev-only-change-in-production}
+      # HS256 requires min 32 chars (see app/core/config.py).
+      JWT_SECRET: ${JWT_SECRET:-openpms-dev-jwt-secret-min-32-chars!!}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     depends_on:
       db:
