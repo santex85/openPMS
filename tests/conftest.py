@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import date, timedelta, time
+from datetime import UTC, date, datetime, timedelta, time
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -48,8 +48,13 @@ def jwt_secret() -> str:
 @pytest.fixture
 def auth_headers(jwt_secret: str):
     def _make(tenant_id: UUID) -> dict[str, str]:
+        now = datetime.now(UTC)
         token = jwt.encode(
-            {"tenant_id": str(tenant_id)},
+            {
+                "tenant_id": str(tenant_id),
+                "sub": str(uuid4()),
+                "exp": now + timedelta(hours=1),
+            },
             jwt_secret,
             algorithm="HS256",
         )
@@ -73,6 +78,7 @@ def auth_headers_user(jwt_secret: str):
                 "tenant_id": str(tenant_id),
                 "sub": str(user_id),
                 "role": role,
+                "exp": datetime.now(UTC) + timedelta(hours=1),
             },
             jwt_secret,
             algorithm="HS256",

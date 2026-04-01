@@ -54,6 +54,13 @@ class Settings(BaseSettings):
         default=False,
         description="Set Secure flag on refresh cookie (enable in production over HTTPS).",
     )
+    webhook_secret_fernet_key: str | None = Field(
+        default=None,
+        description=(
+            "URL-safe base64 Fernet key for encrypting webhook subscription secrets at rest. "
+            "If unset, a key is derived from jwt_secret (rotate jwt_secret invalidates derived keys)."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_jwt_config(self) -> Self:

@@ -13,6 +13,8 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import get_settings
+from app.core.webhook_secrets import decrypt_webhook_secret
 from app.models.integrations.webhook_delivery_log import WebhookDeliveryLog
 from app.models.integrations.webhook_subscription import WebhookSubscription
 from app.services.webhook_subscription_service import list_matching_subscriptions
@@ -73,7 +75,9 @@ async def deliver_to_subscription(
     envelope: dict[str, Any] = {"event": event_type, "data": data}
     body_str = json.dumps(envelope, default=str, separators=(",", ":"))
     body_bytes = body_str.encode("utf-8")
-    signature = sign_webhook_body(sub.secret, body_bytes)
+    settings = get_settings()
+    signing_secret = decrypt_webhook_secret(settings, sub.secret)
+    signature = sign_webhook_body(signing_secret, body_bytes)
     headers = {
         "Content-Type": "application/json",
         "X-Webhook-Signature": f"sha256={signature}",

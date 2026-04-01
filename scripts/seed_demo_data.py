@@ -41,6 +41,7 @@ async def _set_tenant_rls(session: AsyncSession, tenant_id: UUID) -> None:
 def _mint_jwt(tenant_id: UUID, secret: str) -> str:
     payload = {
         "tenant_id": str(tenant_id),
+        "sub": str(uuid4()),
         "exp": datetime.now(timezone.utc) + timedelta(days=365),
     }
     return jwt.encode(payload, secret, algorithm="HS256")

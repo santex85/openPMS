@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 
@@ -14,7 +15,12 @@ def test_housekeeper_cannot_create_webhook_subscription(
     tenant_id = uuid4()
     user_id = uuid4()
     token = jwt.encode(
-        {"tenant_id": str(tenant_id), "sub": str(user_id), "role": "housekeeper"},
+        {
+            "tenant_id": str(tenant_id),
+            "sub": str(user_id),
+            "role": "housekeeper",
+            "exp": datetime.now(UTC) + timedelta(hours=1),
+        },
         jwt_secret,
         algorithm="HS256",
     )

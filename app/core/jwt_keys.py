@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import jwt
+from jwt.exceptions import InvalidTokenError
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
@@ -74,12 +75,22 @@ def decode_access_token(
     issuer: str | None = None,
 ) -> dict:
     key, algorithm = jwt_verifying_material(settings)
-    kwargs: dict = {"algorithms": [algorithm]}
+    kwargs: dict = {
+        "algorithms": [algorithm],
+        "options": {
+            "require": ["exp", "sub"],
+            "verify_signature": True,
+            "verify_exp": True,
+        },
+    }
     if audience is not None:
         kwargs["audience"] = audience
     if issuer is not None:
         kwargs["issuer"] = issuer
-    return jwt.decode(token, key, **kwargs)
+    payload = jwt.decode(token, key, **kwargs)
+    if payload.get("tenant_id") is None:
+        raise InvalidTokenError("Missing required tenant_id claim")
+    return payload
 
 
 def encode_token(settings: Settings, payload: dict) -> str:

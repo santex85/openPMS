@@ -9,7 +9,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.webhook_events import VALID_WEBHOOK_EVENTS
+from app.core.webhook_secrets import encrypt_webhook_secret
 from app.models.integrations.webhook_subscription import WebhookSubscription
 
 
@@ -72,12 +74,13 @@ async def create_subscription(
     u = _validate_https_url(url)
     ev = _normalize_events(events)
     plain_secret = generate_webhook_secret()
+    settings = get_settings()
     row = WebhookSubscription(
         id=uuid4(),
         tenant_id=tenant_id,
         url=u,
         events=ev,
-        secret=plain_secret,
+        secret=encrypt_webhook_secret(settings, plain_secret),
         is_active=is_active,
     )
     session.add(row)

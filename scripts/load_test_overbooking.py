@@ -32,7 +32,7 @@ import argparse
 import asyncio
 import os
 import sys
-from datetime import date, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -220,6 +220,7 @@ async def _run_room_assign_conflict(args: argparse.Namespace) -> int:
             "tenant_id": seed["tenant_id"],
             "sub": str(user_sub),
             "role": "receptionist",
+            "exp": datetime.now(UTC) + timedelta(hours=1),
         },
         jwt_secret,
         algorithm="HS256",
@@ -371,8 +372,14 @@ async def _run(args: argparse.Namespace) -> int:
 
     tenant_id = uuid4()
     seed = await _seed_single_villa_scenario(database_url=database_url, tenant_id=tenant_id)
+    user_sub = uuid4()
     token = jwt.encode(
-        {"tenant_id": seed["tenant_id"]},
+        {
+            "tenant_id": seed["tenant_id"],
+            "sub": str(user_sub),
+            "role": "receptionist",
+            "exp": datetime.now(UTC) + timedelta(hours=1),
+        },
         jwt_secret,
         algorithm="HS256",
     )

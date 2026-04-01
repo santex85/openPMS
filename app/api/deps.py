@@ -72,10 +72,12 @@ def require_roles(*allowed: str) -> Callable:
         if getattr(request.state, "auth_source", "jwt") != "jwt":
             return None
         role = getattr(request.state, "user_role", None)
-        if role is None:
-            role = "owner"
-        else:
-            role = role.lower()
+        if not isinstance(role, str) or not role.strip():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role for this operation",
+            )
+        role = role.strip().lower()
         if role not in allowed_set:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

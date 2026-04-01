@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.routes import (
     api_keys,
@@ -28,6 +29,11 @@ from app.core.config import get_settings
 from app.core.rate_limit import limiter
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.tenant_jwt import TenantJwtMiddleware
+
+
+@limiter.exempt
+async def _health_check() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @asynccontextmanager
@@ -106,6 +112,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         allow_credentials=True,
     )
+    application.add_middleware(SlowAPIMiddleware)
 
     application.include_router(
         auth.router,
@@ -162,9 +169,12 @@ def create_app() -> FastAPI:
         tags=["audit"],
     )
 
-    @application.get("/health", tags=["system"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    application.add_api_route(
+        "/health",
+        _health_check,
+        methods=["GET"],
+        tags=["system"],
+    )
 
     return application
 
