@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.security import hash_password
 from app.models.auth.user import User
 from app.models.core.room import Room
+from app.models.rates.availability_ledger import AvailabilityLedger
 from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
 
@@ -28,6 +29,7 @@ os.environ.setdefault(
 from app.main import app
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
+from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
 from app.models.core.property import Property
 from app.models.core.room_type import RoomType
@@ -302,3 +304,148 @@ def tenant_isolation_booking_scenario(db_engine):
         }
 
     return asyncio.run(_seed())
+
+
+async def _seed_folio_scenario() -> dict[str, object]:
+    tenant_id = uuid4()
+    user_id = uuid4()
+    url = _database_url()
+    if not url:
+        raise RuntimeError("DATABASE_URL is required to seed folio scenario")
+    engine = create_async_engine(url)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    stay_nights = [date(2026, 4, 1), date(2026, 4, 2), date(2026, 4, 3)]
+
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tenant_id)},
+            )
+            session.add(
+                Tenant(
+                    id=tenant_id,
+                    name="FolioTenant",
+                    billing_email="folio@example.com",
+                    status="active",
+                ),
+            )
+            await session.flush()
+            prop = Property(
+                tenant_id=tenant_id,
+                name="Folio Property",
+                timezone="UTC",
+                currency="USD",
+                checkin_time=time(14, 0),
+                checkout_time=time(11, 0),
+            )
+            session.add(prop)
+            await session.flush()
+            room_type = RoomType(
+                tenant_id=tenant_id,
+                property_id=prop.id,
+                name="Standard",
+                base_occupancy=2,
+                max_occupancy=2,
+            )
+            session.add(room_type)
+            await session.flush()
+            rate_plan = RatePlan(
+                tenant_id=tenant_id,
+                property_id=prop.id,
+                name="BAR",
+                cancellation_policy="none",
+            )
+            session.add(rate_plan)
+            await session.flush()
+            session.add(
+                User(
+                    id=user_id,
+                    tenant_id=tenant_id,
+                    email="reception@folio.example.com",
+                    password_hash=hash_password("secret"),
+                    full_name="Front Desk",
+                    role="receptionist",
+                ),
+            )
+            guest = Guest(
+                tenant_id=tenant_id,
+                first_name="F",
+                last_name="Guest",
+                email="fg@folio.example.com",
+                phone="+10000000001",
+            )
+            session.add(guest)
+            await session.flush()
+            for night in stay_nights:
+                session.add(
+                    Rate(
+                        tenant_id=tenant_id,
+                        room_type_id=room_type.id,
+                        rate_plan_id=rate_plan.id,
+                        date=night,
+                        price=Decimal("50.00"),
+                    ),
+                )
+                session.add(
+                    AvailabilityLedger(
+                        tenant_id=tenant_id,
+                        room_type_id=room_type.id,
+                        date=night,
+                        total_rooms=10,
+                        booked_rooms=1,
+                        blocked_rooms=0,
+                    ),
+                )
+            booking = Booking(
+                tenant_id=tenant_id,
+                property_id=prop.id,
+                guest_id=guest.id,
+                rate_plan_id=rate_plan.id,
+                status="confirmed",
+                source="test",
+                total_amount=Decimal("150.00"),
+            )
+            session.add(booking)
+            await session.flush()
+            for night in stay_nights:
+                session.add(
+                    BookingLine(
+                        tenant_id=tenant_id,
+                        booking_id=booking.id,
+                        date=night,
+                        room_type_id=room_type.id,
+                        room_id=None,
+                        price_for_date=Decimal("50.00"),
+                    ),
+                )
+            session.add(
+                FolioTransaction(
+                    tenant_id=tenant_id,
+                    booking_id=booking.id,
+                    transaction_type="Charge",
+                    amount=Decimal("150.00"),
+                    payment_method=None,
+                    description="Room charge (stay)",
+                    created_by=None,
+                    category="room_charge",
+                ),
+            )
+            await session.flush()
+            booking_id = booking.id
+
+    await engine.dispose()
+    return {
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "booking_id": booking_id,
+    }
+
+
+@pytest.fixture
+def folio_scenario() -> dict[str, object]:
+    if not _database_url():
+        pytest.skip("Set DATABASE_URL for integration tests")
+    return asyncio.run(_seed_folio_scenario())

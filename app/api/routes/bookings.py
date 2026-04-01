@@ -100,7 +100,11 @@ async def get_bookings(
     property_id: UUID = Query(..., description="Property to list bookings for"),
     start_date: date = Query(..., description="Inclusive window start (night date)"),
     end_date: date = Query(..., description="Inclusive window end (night date)"),
-    status: str | None = Query(None, description="Filter by booking status"),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        description="Filter by booking status",
+    ),
     limit: int = Query(100, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Rows to skip"),
 ) -> BookingTapePage:
@@ -123,7 +127,7 @@ async def get_bookings(
         property_id=property_id,
         start_date=start_date,
         end_date=end_date,
-        status_filter=status,
+        status_filter=status_filter,
         limit=limit,
         offset=offset,
     )

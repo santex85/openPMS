@@ -25,6 +25,7 @@ async def count_rooms_for_room_type(
         .where(
             Room.tenant_id == tenant_id,
             Room.room_type_id == room_type_id,
+            Room.deleted_at.is_(None),
         )
     )
     result = await session.execute(stmt)
