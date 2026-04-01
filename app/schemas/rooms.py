@@ -16,17 +16,6 @@ class RoomRead(BaseModel):
     status: str
 
 
-class RoomListRead(BaseModel):
-    """Room row for board grid (stable id per physical room)."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    room_type_id: UUID
-    name: str
-    status: str
-
-
 class RoomCreate(BaseModel):
     room_type_id: UUID
     name: str = Field(..., min_length=1, max_length=255)

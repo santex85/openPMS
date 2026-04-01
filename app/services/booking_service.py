@@ -284,17 +284,6 @@ async def create_booking(
     )
 
 
-async def list_bookings(
-    session: AsyncSession,
-    tenant_id: UUID,
-) -> list[Booking]:
-    stmt = (
-        select(Booking).where(Booking.tenant_id == tenant_id).order_by(Booking.id.asc())
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
-
-
 def _booking_tape_list_params(
     tenant_id: UUID,
     property_id: UUID,

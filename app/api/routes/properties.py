@@ -4,17 +4,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantIdDep, get_db, require_roles, require_scopes
+from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.services import property_service
 from app.services.audit_service import record_audit
 
 router = APIRouter()
-
-SessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 PropertyReadRolesDep = Annotated[
     None,
