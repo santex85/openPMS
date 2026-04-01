@@ -177,7 +177,7 @@ def test_second_assign_same_room_rejected(
     ba = room_conflict_scenario["booking_a"]
     bb = room_conflict_scenario["booking_b"]
     rid = room_conflict_scenario["room_id"]
-    h = auth_headers(tid)
+    h = auth_headers(tid, role="receptionist")
     r_ok = client.patch(
         f"/bookings/{ba}",
         headers=h,

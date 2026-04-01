@@ -93,3 +93,20 @@ async def patch_api_key(
         row.is_active = is_active
     await session.flush()
     return row
+
+
+async def delete_api_key(
+    session: AsyncSession,
+    tenant_id: UUID,
+    key_id: UUID,
+) -> None:
+    row = await session.scalar(
+        select(ApiKey).where(
+            ApiKey.tenant_id == tenant_id,
+            ApiKey.id == key_id,
+        ),
+    )
+    if row is None:
+        raise ApiKeyServiceError("API key not found", status_code=404)
+    session.delete(row)
+    await session.flush()

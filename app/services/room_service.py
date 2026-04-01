@@ -124,6 +124,7 @@ async def create_room(
         select(RoomType).where(
             RoomType.tenant_id == tenant_id,
             RoomType.id == room_type_id,
+            RoomType.deleted_at.is_(None),
         ),
     )
     if rt is None:
@@ -163,6 +164,7 @@ async def patch_room(
             select(RoomType).where(
                 RoomType.tenant_id == tenant_id,
                 RoomType.id == room_type_id,
+                RoomType.deleted_at.is_(None),
             ),
         )
         if rt is None:

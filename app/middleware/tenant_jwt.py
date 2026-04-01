@@ -1,14 +1,15 @@
 """Authenticate via Bearer JWT (priority) or X-API-Key for integrations."""
 
-from collections.abc import Awaitable, Callable
+from __future__ import annotations
+
 from uuid import UUID
 
 from jwt.exceptions import InvalidTokenError, PyJWTError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.audit_context import bind_audit_context, reset_audit_context
 from app.core.config import get_settings
@@ -46,15 +47,18 @@ def _client_ip(request: Request) -> str | None:
     return None
 
 
-async def _call_with_audit(
+async def _call_with_audit_asgi(
     request: Request,
-    call_next: Callable[[Request], Awaitable[Response]],
-) -> Response:
+    app: ASGIApp,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+) -> None:
     uid = getattr(request.state, "user_id", None)
     user_id = uid if isinstance(uid, UUID) else None
     tok = bind_audit_context(user_id=user_id, ip_address=_client_ip(request))
     try:
-        return await call_next(request)
+        await app(scope, receive, send)
     finally:
         reset_audit_context(tok)
 
@@ -121,7 +125,6 @@ async def _authenticate_api_key(request: Request, session: AsyncSession) -> bool
         return False
 
     digest = hash_api_key(raw.strip())
-    # api_keys uses FORCE RLS; tenant is unknown until after hash lookup.
     result = await session.execute(
         text("SELECT tenant_id, key_id, scopes FROM lookup_api_key_by_hash(:h)"),
         {"h": digest},
@@ -140,44 +143,62 @@ async def _authenticate_api_key(request: Request, session: AsyncSession) -> bool
     return True
 
 
-class TenantJwtMiddleware(BaseHTTPMiddleware):
+async def _unauthorized_asgi(scope: Scope, receive: Receive, send: Send, message: str) -> None:
+    body = UnauthorizedResponse(detail=message).model_dump()
+    resp = JSONResponse(status_code=401, content=body)
+    await resp(scope, receive, send)
+
+
+class TenantJwtASGIMiddleware:
     """Bearer JWT takes precedence; otherwise X-API-Key for tenant + scopes."""
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+
         if request.method == "OPTIONS":
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         if _is_auth_exempt_path(request.url.path):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             try:
                 ok = await _authenticate_jwt(request)
             except ValueError:
-                return _unauthorized_response("Invalid or expired token")
+                await _unauthorized_asgi(
+                    scope, receive, send, "Invalid or expired token"
+                )
+                return
             if not ok:
-                return _unauthorized_response("Missing bearer token")
-            return await _call_with_audit(request, call_next)
+                await _unauthorized_asgi(scope, receive, send, "Missing bearer token")
+                return
+            await _call_with_audit_asgi(request, self.app, scope, receive, send)
+            return
 
         factory = request.app.state.async_session_factory
         async with factory() as session:
             try:
                 ok = await _authenticate_api_key(request, session)
             except ValueError:
-                return _unauthorized_response("Invalid API key")
+                await _unauthorized_asgi(scope, receive, send, "Invalid API key")
+                return
             if ok:
-                return await _call_with_audit(request, call_next)
+                await _call_with_audit_asgi(request, self.app, scope, receive, send)
+                return
 
-        return _unauthorized_response(
+        await _unauthorized_asgi(
+            scope,
+            receive,
+            send,
             "Authenticate with Authorization: Bearer <JWT> or X-API-Key",
         )
-
-
-def _unauthorized_response(message: str) -> JSONResponse:
-    body = UnauthorizedResponse(detail=message).model_dump()
-    return JSONResponse(status_code=401, content=body)

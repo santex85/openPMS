@@ -3,8 +3,16 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+import structlog
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -26,9 +34,11 @@ from app.api.routes import (
     webhooks,
 )
 from app.core.config import get_settings
+from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
 from app.db.session import create_async_engine_and_sessionmaker
-from app.middleware.tenant_jwt import TenantJwtMiddleware
+from app.middleware.request_id import RequestIdASGIMiddleware
+from app.middleware.tenant_jwt import TenantJwtASGIMiddleware
 
 
 @limiter.exempt
@@ -38,10 +48,9 @@ async def _health_check() -> dict[str, str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_logging()
     settings = get_settings()
-    engine, session_factory = create_async_engine_and_sessionmaker(
-        settings.database_url,
-    )
+    engine, session_factory = create_async_engine_and_sessionmaker(settings)
     app.state.db_engine = engine
     app.state.async_session_factory = session_factory
     yield
@@ -104,7 +113,33 @@ def create_app() -> FastAPI:
     )
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    application.add_middleware(TenantJwtMiddleware)
+
+    @application.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        if isinstance(exc, RequestValidationError):
+            return await request_validation_exception_handler(request, exc)
+        if isinstance(exc, StarletteHTTPException):
+            return await http_exception_handler(request, exc)
+        log = structlog.get_logger()
+        rid = getattr(request.state, "request_id", None)
+        log.exception(
+            "unhandled_exception",
+            request_id=str(rid) if rid is not None else None,
+            path=request.url.path,
+            method=request.method,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal Server Error",
+                "request_id": str(rid) if rid is not None else None,
+            },
+        )
+
+    application.add_middleware(TenantJwtASGIMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins(),
@@ -113,6 +148,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
     )
     application.add_middleware(SlowAPIMiddleware)
+    application.add_middleware(RequestIdASGIMiddleware)
 
     application.include_router(
         auth.router,

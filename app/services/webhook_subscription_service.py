@@ -128,6 +128,23 @@ async def patch_subscription(
     return row
 
 
+async def delete_subscription(
+    session: AsyncSession,
+    tenant_id: UUID,
+    subscription_id: UUID,
+) -> None:
+    row = await session.scalar(
+        select(WebhookSubscription).where(
+            WebhookSubscription.tenant_id == tenant_id,
+            WebhookSubscription.id == subscription_id,
+        ),
+    )
+    if row is None:
+        raise WebhookSubscriptionError("subscription not found", status_code=404)
+    session.delete(row)
+    await session.flush()
+
+
 async def list_matching_subscriptions(
     session: AsyncSession,
     tenant_id: UUID,

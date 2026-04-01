@@ -1,6 +1,7 @@
 """Create booking: pricing, ledger lock, guest, booking, lines, folio."""
 
 from collections.abc import Mapping
+from importlib.resources import files
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -39,6 +40,17 @@ from app.domain.booking_status import (
     validate_status_transition,
 )
 from app.services.stay_dates import MAX_STAY_NIGHTS, iter_stay_nights
+
+_sql_pkg = files("app.services.sql")
+_LINE_AGG_CTE_IN_WINDOW = _sql_pkg.joinpath(
+    "booking_tape_line_agg_in_window.sql",
+).read_text(encoding="utf-8")
+_LINE_AGG_CTE = _sql_pkg.joinpath("booking_tape_line_agg_all_lines.sql").read_text(
+    encoding="utf-8",
+)
+_BOOKING_TAPE_SELECT = _sql_pkg.joinpath("booking_tape_select.sql").read_text(
+    encoding="utf-8",
+)
 
 
 def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
@@ -164,6 +176,7 @@ async def _require_room_type_on_property(
         RoomType.tenant_id == tenant_id,
         RoomType.id == room_type_id,
         RoomType.property_id == property_id,
+        RoomType.deleted_at.is_(None),
     )
     result = await session.execute(stmt)
     row = result.scalar_one_or_none()
@@ -356,68 +369,6 @@ LIMIT :limit OFFSET :offset
     return rows, total
 
 
-_LINE_AGG_CTE_IN_WINDOW = """
-WITH touch AS (
-  SELECT DISTINCT tenant_id, booking_id
-  FROM booking_lines
-  WHERE tenant_id = CAST(:tenant_id AS uuid)
-    AND date >= :start_date AND date <= :end_date
-),
-line_agg AS (
-  SELECT
-    bl.tenant_id,
-    bl.booking_id,
-    MIN(bl.date) AS check_in_date,
-    (MAX(bl.date) + INTERVAL '1 day')::date AS check_out_date,
-    COUNT(DISTINCT bl.room_type_id) AS rt_cnt,
-    MIN(bl.room_type_id::text)::uuid AS rt_min,
-    COUNT(DISTINCT bl.room_id) FILTER (WHERE bl.room_id IS NOT NULL) AS rm_cnt,
-    (MAX(bl.room_id::text) FILTER (WHERE bl.room_id IS NOT NULL))::uuid AS rm_val
-  FROM booking_lines bl
-  INNER JOIN touch t
-    ON t.tenant_id = bl.tenant_id AND t.booking_id = bl.booking_id
-  GROUP BY bl.tenant_id, bl.booking_id
-)
-"""
-
-_LINE_AGG_CTE = """
-WITH line_agg AS (
-  SELECT
-    tenant_id,
-    booking_id,
-    MIN(date) AS check_in_date,
-    (MAX(date) + INTERVAL '1 day')::date AS check_out_date,
-    COUNT(DISTINCT room_type_id) AS rt_cnt,
-    MIN(room_type_id::text)::uuid AS rt_min,
-    COUNT(DISTINCT room_id) FILTER (WHERE room_id IS NOT NULL) AS rm_cnt,
-    (MAX(room_id::text) FILTER (WHERE room_id IS NOT NULL))::uuid AS rm_val
-  FROM booking_lines
-  GROUP BY tenant_id, booking_id
-)
-"""
-
-_BOOKING_TAPE_SELECT = """
-SELECT
-  b.id,
-  b.tenant_id,
-  b.property_id,
-  b.guest_id,
-  b.status,
-  b.source,
-  b.total_amount,
-  g.id AS g_id,
-  g.first_name,
-  g.last_name,
-  la.check_in_date,
-  la.check_out_date,
-  CASE WHEN la.rt_cnt = 1 THEN la.rt_min ELSE NULL END AS room_type_id,
-  CASE WHEN la.rm_cnt = 1 THEN la.rm_val ELSE NULL END AS room_id
-FROM bookings b
-JOIN line_agg la ON la.booking_id = b.id AND la.tenant_id = b.tenant_id
-JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
-"""
-
-
 async def get_booking_tape(
     session: AsyncSession,
     tenant_id: UUID,
@@ -587,6 +538,7 @@ async def assign_booking_room(
         select(RoomType).where(
             RoomType.tenant_id == tenant_id,
             RoomType.id == room.room_type_id,
+            RoomType.deleted_at.is_(None),
         ),
     )
     if rt is None or rt.property_id != booking.property_id:

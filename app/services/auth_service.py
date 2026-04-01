@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -21,6 +21,7 @@ from app.models.auth.refresh_token import RefreshToken
 from app.models.auth.user import User
 from app.models.core.tenant import Tenant
 from app.schemas.auth import (
+    AuthChangePasswordRequest,
     AuthInviteRequest,
     AuthLoginRequest,
     AuthLoginResponse,
@@ -29,6 +30,7 @@ from app.schemas.auth import (
     AuthRegisterResponse,
     AuthInviteResponse,
     TokenPairResponse,
+    UserPatchRequest,
     UserRead,
 )
 
@@ -202,6 +204,143 @@ async def list_users(
         .order_by(User.email.asc()),
     )
     return list(result.scalars().all())
+
+
+async def purge_stale_refresh_tokens(session: AsyncSession) -> int:
+    """Delete refresh token rows that are revoked or past expiry (tenant RLS context)."""
+    now = datetime.now(UTC)
+    result = await session.execute(
+        delete(RefreshToken).where(
+            or_(
+                RefreshToken.revoked_at.is_not(None),
+                RefreshToken.expires_at < now,
+            ),
+        ),
+    )
+    return int(result.rowcount or 0)
+
+
+async def _revoke_all_refresh_tokens_for_user(
+    session: AsyncSession,
+    tenant_id: UUID,
+    user_id: UUID,
+) -> None:
+    now = datetime.now(UTC)
+    await session.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.tenant_id == tenant_id,
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=now),
+    )
+
+
+async def change_password(
+    session: AsyncSession,
+    tenant_id: UUID,
+    user_id: UUID,
+    body: AuthChangePasswordRequest,
+) -> None:
+    user = await get_user(session, tenant_id, user_id)
+    if user is None or not user.is_active:
+        raise AuthServiceError("user not found", status_code=404)
+    if not verify_password(body.current_password, user.password_hash):
+        raise AuthServiceError("invalid current password", status_code=401)
+    user.password_hash = hash_password(body.new_password)
+    await _revoke_all_refresh_tokens_for_user(session, tenant_id, user_id)
+    await session.flush()
+
+
+_USER_ROLES = frozenset({"owner", "manager", "viewer", "housekeeper", "receptionist"})
+
+
+async def patch_user(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    actor_user_id: UUID,
+    actor_role: str,
+    target_user_id: UUID,
+    body: UserPatchRequest,
+) -> User:
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        target = await get_user(session, tenant_id, target_user_id)
+        if target is None:
+            raise AuthServiceError("user not found", status_code=404)
+        return target
+
+    actor_r = actor_role.strip().lower()
+    if actor_user_id == target_user_id and data.get("is_active") is False:
+        raise AuthServiceError("cannot deactivate yourself", status_code=400)
+
+    target = await get_user(session, tenant_id, target_user_id)
+    if target is None:
+        raise AuthServiceError("user not found", status_code=404)
+
+    if actor_r == "manager":
+        if target.role.strip().lower() == "owner":
+            raise AuthServiceError(
+                "managers cannot modify an owner account",
+                status_code=403,
+            )
+        new_role = data.get("role")
+        if new_role is not None and new_role.strip().lower() == "owner":
+            raise AuthServiceError(
+                "only an owner can assign the owner role",
+                status_code=403,
+            )
+
+    new_role_norm: str | None = None
+    if body.role is not None:
+        new_role_norm = body.role.strip().lower()
+        if new_role_norm not in _USER_ROLES:
+            raise AuthServiceError(
+                "role must be one of: "
+                + ", ".join(sorted(_USER_ROLES)),
+                status_code=422,
+            )
+        if actor_r == "manager" and new_role_norm == "owner":
+            raise AuthServiceError(
+                "only an owner can assign the owner role",
+                status_code=403,
+            )
+
+    next_role = (
+        new_role_norm
+        if new_role_norm is not None
+        else target.role.strip().lower()
+    )
+    next_active = target.is_active
+    if "is_active" in data:
+        next_active = bool(data["is_active"])
+
+    target_contributes_owner = next_role == "owner" and next_active
+    other_active_owners = await session.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.tenant_id == tenant_id,
+            User.id != target_user_id,
+            User.role == "owner",
+            User.is_active.is_(True),
+        ),
+    )
+    if (1 if target_contributes_owner else 0) + int(other_active_owners or 0) < 1:
+        raise AuthServiceError(
+            "tenant must keep at least one active owner",
+            status_code=409,
+        )
+
+    if new_role_norm is not None:
+        target.role = new_role_norm
+    if "is_active" in data:
+        target.is_active = bool(data["is_active"])
+
+    await session.flush()
+    return target
 
 
 _INVITABLE_ROLES = frozenset({"manager", "viewer", "housekeeper", "receptionist"})

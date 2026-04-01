@@ -20,6 +20,7 @@ from app.schemas.api_keys import (
 from app.services.api_key_service import (
     ApiKeyServiceError,
     create_api_key,
+    delete_api_key,
     list_api_keys,
     patch_api_key,
 )
@@ -118,3 +119,27 @@ async def patch_api_key_route(
         new_values=body.model_dump(exclude_unset=True, mode="json"),
     )
     return ApiKeyRead.model_validate(row)
+
+
+@router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_api_key_route(
+    _: ApiKeysManageDep,
+    key_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> None:
+    try:
+        await delete_api_key(session, tenant_id, key_id)
+    except ApiKeyServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="api_key.delete",
+        entity_type="api_key",
+        entity_id=key_id,
+        new_values={},
+    )

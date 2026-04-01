@@ -18,8 +18,9 @@ def test_status_happy_path_confirmed_to_checked_out(
     auth_headers,
 ) -> None:
     tenant_id: UUID = folio_scenario["tenant_id"]  # type: ignore[assignment]
+    user_id: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
-    h = auth_headers(tenant_id)
+    h = auth_headers(tenant_id, user_id=user_id, role="receptionist")
     r1 = client.patch(
         f"/bookings/{booking_id}", headers=h, json={"status": "checked_in"}
     )
@@ -34,8 +35,9 @@ def test_patch_confirmed_to_checked_out_rejected(
     client, folio_scenario: dict, auth_headers
 ) -> None:
     tenant_id: UUID = folio_scenario["tenant_id"]  # type: ignore[assignment]
+    user_id: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
-    h = auth_headers(tenant_id)
+    h = auth_headers(tenant_id, user_id=user_id, role="receptionist")
     r = client.patch(
         f"/bookings/{booking_id}", headers=h, json={"status": "checked_out"}
     )

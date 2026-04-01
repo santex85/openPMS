@@ -17,6 +17,26 @@ class Settings(BaseSettings):
     )
 
     database_url: str
+    db_pool_size: int = Field(
+        default=10,
+        ge=1,
+        description="SQLAlchemy async engine pool size.",
+    )
+    db_max_overflow: int = Field(
+        default=5,
+        ge=0,
+        description="Max overflow connections beyond pool_size.",
+    )
+    db_pool_timeout: float = Field(
+        default=30.0,
+        ge=1,
+        description="Seconds to wait for a connection from the pool.",
+    )
+    db_pool_recycle: int = Field(
+        default=1800,
+        ge=300,
+        description="Recycle connections after this many seconds (server-side timeouts).",
+    )
     jwt_secret: str = Field(
         default="",
         description="HS256 shared secret (min 32 chars). Unused when jwt_algorithm is RS256.",
@@ -87,3 +107,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def clear_settings_cache() -> None:
+    """Drop cached Settings (e.g. between tests after changing os.environ)."""
+    get_settings.cache_clear()

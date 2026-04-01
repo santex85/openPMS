@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,9 +33,6 @@ async def get_dashboard_summary(
     tenant_id: UUID,
     property_id: UUID,
 ) -> DashboardSummaryRead:
-    today = datetime.now(UTC).date()
-    yesterday = today - timedelta(days=1)
-
     prop = await session.scalar(
         select(Property).where(
             Property.tenant_id == tenant_id,
@@ -43,6 +41,24 @@ async def get_dashboard_summary(
     )
     if prop is None:
         raise DashboardServiceError("property not found", status_code=404)
+
+    tz_id = prop.timezone.strip()
+    if not tz_id:
+        raise DashboardServiceError(
+            "property timezone is empty",
+            status_code=400,
+        )
+    try:
+        tz = ZoneInfo(tz_id)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise DashboardServiceError(
+            f"Invalid IANA timezone for property: {prop.timezone!r}. "
+            "Use a valid identifier such as Europe/Berlin or Asia/Bangkok.",
+            status_code=400,
+        ) from None
+
+    today_local = datetime.now(tz).date()
+    yesterday_local = today_local - timedelta(days=1)
 
     min_date_subq = (
         select(func.min(BookingLine.date))
@@ -61,7 +77,7 @@ async def get_dashboard_summary(
                 Booking.tenant_id == tenant_id,
                 Booking.property_id == property_id,
                 Booking.status.notin_(_ACTIVE_EXCLUDE),
-                min_date_subq == today,
+                min_date_subq == today_local,
             ),
         )
         or 0,
@@ -84,7 +100,7 @@ async def get_dashboard_summary(
                 Booking.tenant_id == tenant_id,
                 Booking.property_id == property_id,
                 Booking.status.notin_(_ACTIVE_EXCLUDE),
-                max_date_subq == yesterday,
+                max_date_subq == yesterday_local,
             ),
         )
         or 0,
@@ -104,7 +120,7 @@ async def get_dashboard_summary(
         .where(
             AvailabilityLedger.tenant_id == tenant_id,
             RoomType.property_id == property_id,
-            AvailabilityLedger.date == today,
+            AvailabilityLedger.date == today_local,
         ),
     )
     occupied_raw, total_raw = ledger_row.one()

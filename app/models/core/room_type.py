@@ -1,8 +1,9 @@
 """Room category (e.g. Deluxe King) for a property."""
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKeyConstraint, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,3 +31,7 @@ class RoomType(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_occupancy: Mapped[int] = mapped_column(Integer, nullable=False)
     max_occupancy: Mapped[int] = mapped_column(Integer, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

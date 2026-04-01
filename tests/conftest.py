@@ -35,6 +35,15 @@ from app.models.core.property import Property
 from app.models.core.room_type import RoomType
 from app.models.core.tenant import Tenant
 
+from app.core.config import clear_settings_cache
+
+
+@pytest.fixture(autouse=True)
+def _reset_settings_cache() -> None:
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -47,12 +56,27 @@ def jwt_secret() -> str:
 
 @pytest.fixture
 def auth_headers(jwt_secret: str):
-    def _make(tenant_id: UUID) -> dict[str, str]:
+    """
+    Build ``Authorization: Bearer`` for integration tests.
+
+    Always includes ``role`` (required by ``require_roles`` for JWT auth).
+    Pass ``user_id`` when the route needs a real subject (``UserIdDep``) or
+    audit attribution; otherwise ``sub`` is a random UUID (fine for RLS-only reads).
+    """
+
+    def _make(
+        tenant_id: UUID,
+        *,
+        user_id: UUID | None = None,
+        role: str = "owner",
+    ) -> dict[str, str]:
         now = datetime.now(UTC)
+        sub = str(user_id) if user_id is not None else str(uuid4())
         token = jwt.encode(
             {
                 "tenant_id": str(tenant_id),
-                "sub": str(uuid4()),
+                "sub": sub,
+                "role": role.strip().lower(),
                 "exp": now + timedelta(hours=1),
             },
             jwt_secret,

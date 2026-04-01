@@ -1,7 +1,7 @@
 """Authentication: register, login, refresh, invite, current user."""
 
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
@@ -18,6 +18,7 @@ from app.core.rate_limit import limiter
 from app.db.rls_session import tenant_transaction_session
 from app.schemas.auth import (
     AccessTokenResponse,
+    AuthChangePasswordRequest,
     AuthInviteRequest,
     AuthInviteResponse,
     AuthLoginPublicResponse,
@@ -25,15 +26,18 @@ from app.schemas.auth import (
     AuthRegisterPublicResponse,
     AuthRefreshRequest,
     AuthRegisterRequest,
+    UserPatchRequest,
     UserRead,
 )
 from app.services.audit_service import record_audit
 from app.services.auth_service import (
     AuthServiceError,
+    change_password,
     get_user,
     invite_user,
     list_users,
     login as login_user,
+    patch_user,
     refresh_session,
     register_tenant_owner,
 )
@@ -154,6 +158,81 @@ async def get_users(
 ) -> list[UserRead]:
     rows = await list_users(session, tenant_id)
     return [UserRead.model_validate(r) for r in rows]
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def post_change_password(
+    _: Annotated[None, Depends(require_jwt_user())],
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    user_id: UserIdDep,
+    body: AuthChangePasswordRequest,
+) -> None:
+    try:
+        await change_password(session, tenant_id, user_id, body)
+    except AuthServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="user.change_password",
+        entity_type="user",
+        entity_id=user_id,
+        new_values={},
+    )
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserRead,
+    summary="Update a tenant user",
+    description=(
+        "Owner or manager only. Managers cannot modify an owner account or assign the owner role. "
+        "You cannot deactivate yourself. The tenant must always have at least one active owner."
+    ),
+)
+async def patch_user_route(
+    _: InviteManagerDep,
+    request: Request,
+    user_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    actor_user_id: UserIdDep,
+    body: UserPatchRequest,
+) -> UserRead:
+    role_raw = getattr(request.state, "user_role", None)
+    actor_role = role_raw.strip().lower() if isinstance(role_raw, str) else ""
+    if not actor_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient role for this operation",
+        )
+    try:
+        user = await patch_user(
+            session,
+            tenant_id,
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            target_user_id=user_id,
+            body=body,
+        )
+    except AuthServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="user.patch",
+        entity_type="user",
+        entity_id=user_id,
+        new_values=body.model_dump(exclude_unset=True, mode="json"),
+    )
+    return UserRead.model_validate(user)
 
 
 @router.get("/me", response_model=UserRead)

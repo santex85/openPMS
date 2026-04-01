@@ -14,6 +14,8 @@ class RoomRead(BaseModel):
     room_type_id: UUID
     name: str
     status: str
+    housekeeping_status: str
+    housekeeping_priority: str
 
 
 class RoomCreate(BaseModel):

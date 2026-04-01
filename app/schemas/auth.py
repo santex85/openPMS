@@ -44,6 +44,18 @@ class AuthInviteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class AuthChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=256)
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserPatchRequest(BaseModel):
+    is_active: bool | None = None
+    role: str | None = Field(None, min_length=1, max_length=32)
+    model_config = ConfigDict(extra="forbid")
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

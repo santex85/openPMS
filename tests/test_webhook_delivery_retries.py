@@ -122,3 +122,89 @@ async def test_deliver_to_subscription_logs_three_attempts_before_success() -> N
         assert sorted(rows) == [1, 2, 3]
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_deliver_first_success_writes_single_log_with_200() -> None:
+    url = _database_url()
+    if not url:
+        pytest.skip("DATABASE_URL required")
+
+    tenant_id = uuid4()
+    sub_id = uuid4()
+    engine = create_async_engine(url)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tenant_id)},
+            )
+            session.add(
+                Tenant(
+                    id=tenant_id,
+                    name="WHTest2",
+                    billing_email="wh2@example.com",
+                    status="active",
+                ),
+            )
+            session.add(
+                WebhookSubscription(
+                    id=sub_id,
+                    tenant_id=tenant_id,
+                    url="https://example.test/hook-ok",
+                    events=["booking.created"],
+                    secret="plain-signing-secret",
+                    is_active=True,
+                ),
+            )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_cm.__aexit__ = AsyncMock(return_value=None)
+
+    async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+            {"tid": str(tenant_id)},
+        )
+        sub = await session.get(WebhookSubscription, sub_id)
+
+    with patch(
+        "app.services.webhook_delivery_engine.httpx.AsyncClient",
+        return_value=mock_cm,
+    ):
+        await deliver_to_subscription(
+            factory,
+            tenant_id,
+            sub,
+            "booking.created",
+            {"id": "x"},
+        )
+
+    async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+            {"tid": str(tenant_id)},
+        )
+        cnt = await session.scalar(
+            select(func.count())
+            .select_from(WebhookDeliveryLog)
+            .where(WebhookDeliveryLog.webhook_subscription_id == sub_id),
+        )
+        assert cnt == 1
+        row = await session.scalar(
+            select(WebhookDeliveryLog).where(
+                WebhookDeliveryLog.webhook_subscription_id == sub_id,
+            ),
+        )
+        assert row is not None
+        assert row.http_status_code == 200
+        assert row.error_message is None
+
+    await engine.dispose()
