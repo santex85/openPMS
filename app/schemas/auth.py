@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UnauthorizedResponse(BaseModel):
@@ -21,10 +21,23 @@ class AuthRegisterRequest(BaseModel):
 
 
 class AuthLoginRequest(BaseModel):
-    tenant_id: UUID
+    tenant_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Tenant scope. Omit when this email matches exactly one active user; "
+            "pass it when the same email exists in multiple organizations."
+        ),
+    )
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=256)
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("tenant_id", mode="before")
+    @classmethod
+    def _empty_string_tenant_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
 
 class AuthRefreshRequest(BaseModel):

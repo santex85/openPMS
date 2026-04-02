@@ -40,6 +40,7 @@ from app.services.auth_service import (
     patch_user,
     refresh_session,
     register_tenant_owner,
+    resolve_tenant_id_for_email_login,
 )
 
 router = APIRouter()
@@ -98,9 +99,22 @@ async def post_login(
 ) -> AuthLoginPublicResponse:
     settings = get_settings()
     factory = request.app.state.async_session_factory
+    email_norm = body.email.strip().lower()
+    tid = body.tenant_id
+    if tid is None:
+        try:
+            tid = await resolve_tenant_id_for_email_login(factory, email_norm)
+        except AuthServiceError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+            ) from exc
+    body_for_login = (
+        body if body.tenant_id is not None else body.model_copy(update={"tenant_id": tid})
+    )
     try:
-        async with tenant_transaction_session(factory, body.tenant_id) as session:
-            full = await login_user(session, settings, body)
+        async with tenant_transaction_session(factory, tid) as session:
+            full = await login_user(session, settings, body_for_login)
     except AuthServiceError as exc:
         raise HTTPException(
             status_code=exc.status_code,

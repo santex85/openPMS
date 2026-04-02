@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, func, or_, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.jwt_keys import encode_token
@@ -117,15 +117,43 @@ async def register_tenant_owner(
     )
 
 
+async def resolve_tenant_id_for_email_login(
+    factory: async_sessionmaker[AsyncSession],
+    email_norm: str,
+) -> UUID:
+    """Resolve tenant when password login omits tenant_id (exactly one active user)."""
+    async with factory() as session:
+        async with session.begin():
+            result = await session.execute(
+                text(
+                    "SELECT tenant_id, user_id FROM "
+                    "lookup_active_users_by_email_login(CAST(:email AS text))",
+                ),
+                {"email": email_norm},
+            )
+            rows = result.all()
+    if len(rows) == 0:
+        raise AuthServiceError("Неверные данные.", status_code=401)
+    if len(rows) > 1:
+        raise AuthServiceError(
+            "Несколько аккаунтов с этим email. Укажите ID организации (tenant).",
+            status_code=401,
+        )
+    return rows[0][0]
+
+
 async def login(
     session: AsyncSession,
     settings: Settings,
     body: AuthLoginRequest,
 ) -> AuthLoginResponse:
+    tid = body.tenant_id
+    if tid is None:
+        raise AuthServiceError("tenant_id required", status_code=500)
     email_norm = body.email.strip().lower()
     user = await session.scalar(
         select(User).where(
-            User.tenant_id == body.tenant_id,
+            User.tenant_id == tid,
             User.email == email_norm,
         ),
     )
