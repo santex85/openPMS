@@ -1,14 +1,17 @@
 """Rooms REST API."""
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
-from app.schemas.rooms import RoomCreate, RoomPatch, RoomRead
+from app.schemas.rooms import AssignableRoomsQueryParams, RoomCreate, RoomPatch, RoomRead
+from app.services.room_assignable_service import list_assignable_rooms_for_stay
 from app.services.audit_service import record_audit
 from app.services.room_list_service import property_belongs_to_tenant
 from app.services.room_service import (
@@ -56,7 +59,55 @@ async def get_rooms(
         None,
         description="Filter by property; omit to list all rooms for the tenant",
     ),
+    for_stay_room_type_id: UUID | None = Query(
+        None,
+        description=(
+            "With for_stay_check_in + for_stay_check_out: return only physical rooms "
+            "free on those stay nights for this category (same rules as inventory assignable)."
+        ),
+    ),
+    for_stay_check_in: date | None = Query(
+        None,
+        description="First night (inclusive); requires for_stay_room_type_id and check-out",
+    ),
+    for_stay_check_out: date | None = Query(
+        None,
+        description="Checkout date exclusive; requires for_stay_room_type_id and check-in",
+    ),
 ) -> list[RoomRead]:
+    assignable_mode = (
+        property_id is not None
+        and for_stay_room_type_id is not None
+        and for_stay_check_in is not None
+        and for_stay_check_out is not None
+    )
+    if assignable_mode:
+        assert property_id is not None
+        await _ensure_property(session, tenant_id, property_id)
+        try:
+            stay_params = AssignableRoomsQueryParams.model_validate(
+                {
+                    "property_id": property_id,
+                    "room_type_id": for_stay_room_type_id,
+                    "check_in": for_stay_check_in,
+                    "check_out": for_stay_check_out,
+                },
+            )
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.errors(),
+            ) from exc
+        assignable_rows = await list_assignable_rooms_for_stay(
+            session, tenant_id, stay_params
+        )
+        if assignable_rows is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="property or room type not found",
+            )
+        return [RoomRead.model_validate(r) for r in assignable_rows]
+
     if property_id is not None:
         await _ensure_property(session, tenant_id, property_id)
     rows = await list_rooms(session, tenant_id, property_id=property_id)

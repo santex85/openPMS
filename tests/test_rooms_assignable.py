@@ -1,4 +1,4 @@
-"""GET /inventory/rooms-for-stay lists physical rooms free on stay nights."""
+"""Assignable rooms for a stay (inventory and rooms alias paths)."""
 
 from __future__ import annotations
 
@@ -178,7 +178,18 @@ def assignable_rooms_scenario() -> dict[str, UUID]:
     return asyncio.run(_seed_two_rooms_one_busy())
 
 
+@pytest.mark.parametrize(
+    ("assignable_path", "rooms_list_style"),
+    [
+        ("/rooms", True),
+        ("/bookings/assignable-rooms-for-stay", False),
+        ("/assignable-rooms-for-stay", False),
+        ("/inventory/rooms-for-stay", False),
+    ],
+)
 def test_assignable_rooms_excludes_busy_physical_room(
+    assignable_path: str,
+    rooms_list_style: bool,
     client,
     assignable_rooms_scenario: dict[str, UUID],
     auth_headers,
@@ -189,15 +200,25 @@ def test_assignable_rooms_excludes_busy_physical_room(
     free = assignable_rooms_scenario["free_room_id"]
     busy = assignable_rooms_scenario["busy_room_id"]
     h = auth_headers(tid, role="receptionist")
-    r = client.get(
-        "/inventory/rooms-for-stay",
-        headers=h,
-        params={
+    params = (
+        {
+            "property_id": str(pid),
+            "for_stay_room_type_id": str(rtid),
+            "for_stay_check_in": "2026-08-01",
+            "for_stay_check_out": "2026-08-03",
+        }
+        if rooms_list_style
+        else {
             "property_id": str(pid),
             "room_type_id": str(rtid),
             "check_in": "2026-08-01",
             "check_out": "2026-08-03",
-        },
+        }
+    )
+    r = client.get(
+        assignable_path,
+        headers=h,
+        params=params,
     )
     assert r.status_code == 200
     rows = r.json()
@@ -207,7 +228,18 @@ def test_assignable_rooms_excludes_busy_physical_room(
     assert len(rows) == 1
 
 
+@pytest.mark.parametrize(
+    ("assignable_path", "rooms_list_style"),
+    [
+        ("/rooms", True),
+        ("/bookings/assignable-rooms-for-stay", False),
+        ("/assignable-rooms-for-stay", False),
+        ("/inventory/rooms-for-stay", False),
+    ],
+)
 def test_assignable_rooms_unknown_room_type_404(
+    assignable_path: str,
+    rooms_list_style: bool,
     client,
     assignable_rooms_scenario: dict[str, UUID],
     auth_headers,
@@ -215,14 +247,25 @@ def test_assignable_rooms_unknown_room_type_404(
     tid = assignable_rooms_scenario["tenant_id"]
     pid = assignable_rooms_scenario["property_id"]
     h = auth_headers(tid, role="receptionist")
-    r = client.get(
-        "/inventory/rooms-for-stay",
-        headers=h,
-        params={
+    bad_rt = str(uuid4())
+    params = (
+        {
             "property_id": str(pid),
-            "room_type_id": str(uuid4()),
+            "for_stay_room_type_id": bad_rt,
+            "for_stay_check_in": "2026-08-01",
+            "for_stay_check_out": "2026-08-03",
+        }
+        if rooms_list_style
+        else {
+            "property_id": str(pid),
+            "room_type_id": bad_rt,
             "check_in": "2026-08-01",
             "check_out": "2026-08-03",
-        },
+        }
+    )
+    r = client.get(
+        assignable_path,
+        headers=h,
+        params=params,
     )
     assert r.status_code == 404

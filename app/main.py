@@ -19,6 +19,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.routes import (
     api_keys,
+    assignable_stay,
     audit_log,
     auth,
     bookings,
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
         prefix="/room-types",
         tags=["room-types"],
     )
+    application.include_router(assignable_stay.router)
     application.include_router(inventory.router)
     application.include_router(
         rate_plans.router,

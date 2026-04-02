@@ -74,7 +74,7 @@ def _availability_query_params(
         ) from exc
 
 
-def _rooms_for_stay_query_params(
+def rooms_for_stay_query_params(
     property_id: Annotated[UUID, Query(description="Property scope")],
     room_type_id: Annotated[UUID, Query(description="Room category")],
     check_in: Annotated[date, Query(description="First night (inclusive)")],
@@ -132,7 +132,7 @@ async def get_inventory_rooms_for_stay(
     tenant_id: TenantIdDep,
     params: Annotated[
         AssignableRoomsQueryParams,
-        Depends(_rooms_for_stay_query_params),
+        Depends(rooms_for_stay_query_params),
     ],
 ) -> list[RoomRead]:
     """Physical rooms free on stay nights; lives under /inventory to avoid /rooms/{{id}} clash."""

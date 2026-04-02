@@ -24,6 +24,7 @@ async def list_rooms_for_property(
         .where(
             Room.tenant_id == tenant_id,
             RoomType.property_id == property_id,
+            RoomType.deleted_at.is_(None),
             Room.deleted_at.is_(None),
         )
         .order_by(Room.name.asc())

@@ -23,6 +23,7 @@ from app.api.deps import (
     require_roles,
     require_scopes,
 )
+from app.api.routes.inventory import InventoryReadRolesDep, rooms_for_stay_query_params
 from app.core.api_scopes import BOOKINGS_READ, BOOKINGS_WRITE
 from app.core.rate_limit import limiter
 from app.schemas.bookings import (
@@ -32,6 +33,7 @@ from app.schemas.bookings import (
     BookingTapePage,
     BookingTapeRead,
 )
+from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.schemas.folio import (
     BookingCheckoutBalanceWarning,
     FolioListResponse,
@@ -51,6 +53,7 @@ from app.services.booking_service import (
     list_bookings_enriched,
     patch_booking,
 )
+from app.services.room_assignable_service import list_assignable_rooms_for_stay
 from app.services.folio_service import (
     FolioError,
     add_folio_entry,
@@ -138,6 +141,26 @@ async def get_bookings(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/assignable-rooms-for-stay", response_model=list[RoomRead])
+async def get_bookings_assignable_rooms_for_stay(
+    _: InventoryReadRolesDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    params: Annotated[
+        AssignableRoomsQueryParams,
+        Depends(rooms_for_stay_query_params),
+    ],
+) -> list[RoomRead]:
+    """Same as GET /inventory/rooms-for-stay; lives under /bookings so it ships with the tape API."""
+    rows = await list_assignable_rooms_for_stay(session, tenant_id, params)
+    if rows is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="property or room type not found",
+        )
+    return [RoomRead.model_validate(r) for r in rows]
 
 
 @router.get(
