@@ -96,8 +96,8 @@ async def get_rooms(
     return [RoomRead.model_validate(r) for r in rows]
 
 
-@router.get("/assignable", response_model=list[RoomRead])
-async def get_assignable_rooms(
+@router.get("/for-stay", response_model=list[RoomRead])
+async def get_rooms_assignable_for_stay(
     _: RoomReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -106,6 +106,7 @@ async def get_assignable_rooms(
         Depends(_assignable_rooms_query_params),
     ],
 ) -> list[RoomRead]:
+    """Rooms free on [check_in, check_out); static path avoids /rooms/{room_id} shadowing."""
     rows = await list_assignable_rooms_for_stay(session, tenant_id, params)
     if rows is None:
         raise HTTPException(

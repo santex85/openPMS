@@ -37,7 +37,7 @@ class RoomPatch(BaseModel):
 
 
 class AssignableRoomsQueryParams(BaseModel):
-    """Query string for GET /rooms/assignable (check-out is exclusive)."""
+    """Query string for GET /rooms/for-stay (check-out is exclusive)."""
 
     property_id: UUID
     room_type_id: UUID
