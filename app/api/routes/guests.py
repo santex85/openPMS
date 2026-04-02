@@ -3,9 +3,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.core.rate_limit import limiter
 from app.core.api_scopes import GUESTS_READ, GUESTS_WRITE
 from app.schemas.guest import (
     GuestCreate,
@@ -79,7 +80,9 @@ async def get_guest_detail(
 
 
 @router.post("", response_model=GuestRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
 async def post_guest(
+    request: Request,
     _: GuestWriteRolesDep,
     body: GuestCreate,
     session: SessionDep,

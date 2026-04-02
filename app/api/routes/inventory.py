@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
+from app.core.rate_limit import limiter
 from app.schemas.availability_override import (
     AvailabilityOverridePutRequest,
     AvailabilityOverridePutResponse,
@@ -101,6 +102,7 @@ async def get_availability_grid(
     "/availability/overrides",
     response_model=AvailabilityOverridePutResponse,
 )
+@limiter.limit("30/minute")
 async def put_availability_overrides(
     request: Request,
     background_tasks: BackgroundTasks,

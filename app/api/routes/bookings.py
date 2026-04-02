@@ -24,6 +24,7 @@ from app.api.deps import (
     require_scopes,
 )
 from app.core.api_scopes import BOOKINGS_READ, BOOKINGS_WRITE
+from app.core.rate_limit import limiter
 from app.schemas.bookings import (
     BookingCreateRequest,
     BookingCreateResponse,
@@ -364,6 +365,7 @@ async def patch_booking_by_id(
     response_model=BookingCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def post_booking(
     request: Request,
     background_tasks: BackgroundTasks,
