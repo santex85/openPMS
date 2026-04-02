@@ -23,7 +23,9 @@ from app.schemas.availability_override import (
     AvailabilityOverridePutResponse,
 )
 from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryParams
+from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.services import availability_service
+from app.services.room_assignable_service import list_assignable_rooms_for_stay
 from app.services.availability_lock import LedgerNotSeededError
 from app.services.availability_override_service import (
     AvailabilityOverrideError,
@@ -72,6 +74,31 @@ def _availability_query_params(
         ) from exc
 
 
+def _rooms_for_stay_query_params(
+    property_id: Annotated[UUID, Query(description="Property scope")],
+    room_type_id: Annotated[UUID, Query(description="Room category")],
+    check_in: Annotated[date, Query(description="First night (inclusive)")],
+    check_out: Annotated[
+        date,
+        Query(description="Exclusive checkout date (last night not included)"),
+    ],
+) -> AssignableRoomsQueryParams:
+    try:
+        return AssignableRoomsQueryParams.model_validate(
+            {
+                "property_id": property_id,
+                "room_type_id": room_type_id,
+                "check_in": check_in,
+                "check_out": check_out,
+            },
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
+
+
 @router.get(
     "/availability",
     response_model=AvailabilityGridResponse,
@@ -96,6 +123,26 @@ async def get_availability_grid(
             detail="Property not found",
         )
     return grid
+
+
+@router.get("/rooms-for-stay", response_model=list[RoomRead])
+async def get_inventory_rooms_for_stay(
+    _: InventoryReadRolesDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    params: Annotated[
+        AssignableRoomsQueryParams,
+        Depends(_rooms_for_stay_query_params),
+    ],
+) -> list[RoomRead]:
+    """Physical rooms free on stay nights; lives under /inventory to avoid /rooms/{{id}} clash."""
+    rows = await list_assignable_rooms_for_stay(session, tenant_id, params)
+    if rows is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="property or room type not found",
+        )
+    return [RoomRead.model_validate(r) for r in rows]
 
 
 @router.put(

@@ -1,22 +1,14 @@
 """Rooms REST API."""
 
-from datetime import date
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
-from app.schemas.rooms import (
-    AssignableRoomsQueryParams,
-    RoomCreate,
-    RoomPatch,
-    RoomRead,
-)
-from app.services.room_assignable_service import list_assignable_rooms_for_stay
+from app.schemas.rooms import RoomCreate, RoomPatch, RoomRead
 from app.services.audit_service import record_audit
 from app.services.room_list_service import property_belongs_to_tenant
 from app.services.room_service import (
@@ -55,31 +47,6 @@ async def _ensure_property(
         )
 
 
-def _assignable_rooms_query_params(
-    property_id: Annotated[UUID, Query(description="Property scope")],
-    room_type_id: Annotated[UUID, Query(description="Room category")],
-    check_in: Annotated[date, Query(description="First night (inclusive)")],
-    check_out: Annotated[
-        date,
-        Query(description="Exclusive checkout date (last night not included)"),
-    ],
-) -> AssignableRoomsQueryParams:
-    try:
-        return AssignableRoomsQueryParams.model_validate(
-            {
-                "property_id": property_id,
-                "room_type_id": room_type_id,
-                "check_in": check_in,
-                "check_out": check_out,
-            },
-        )
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=exc.errors(),
-        ) from exc
-
-
 @router.get("", response_model=list[RoomRead])
 async def get_rooms(
     _: RoomReadRolesDep,
@@ -93,26 +60,6 @@ async def get_rooms(
     if property_id is not None:
         await _ensure_property(session, tenant_id, property_id)
     rows = await list_rooms(session, tenant_id, property_id=property_id)
-    return [RoomRead.model_validate(r) for r in rows]
-
-
-@router.get("/for-stay", response_model=list[RoomRead])
-async def get_rooms_assignable_for_stay(
-    _: RoomReadRolesDep,
-    session: SessionDep,
-    tenant_id: TenantIdDep,
-    params: Annotated[
-        AssignableRoomsQueryParams,
-        Depends(_assignable_rooms_query_params),
-    ],
-) -> list[RoomRead]:
-    """Rooms free on [check_in, check_out); static path avoids /rooms/{room_id} shadowing."""
-    rows = await list_assignable_rooms_for_stay(session, tenant_id, params)
-    if rows is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="property or room type not found",
-        )
     return [RoomRead.model_validate(r) for r in rows]
 
 

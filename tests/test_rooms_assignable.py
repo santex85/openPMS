@@ -1,4 +1,4 @@
-"""GET /rooms/for-stay lists physical rooms free on stay nights."""
+"""GET /inventory/rooms-for-stay lists physical rooms free on stay nights."""
 
 from __future__ import annotations
 
@@ -190,7 +190,7 @@ def test_assignable_rooms_excludes_busy_physical_room(
     busy = assignable_rooms_scenario["busy_room_id"]
     h = auth_headers(tid, role="receptionist")
     r = client.get(
-        "/rooms/for-stay",
+        "/inventory/rooms-for-stay",
         headers=h,
         params={
             "property_id": str(pid),
@@ -216,7 +216,7 @@ def test_assignable_rooms_unknown_room_type_404(
     pid = assignable_rooms_scenario["property_id"]
     h = auth_headers(tid, role="receptionist")
     r = client.get(
-        "/rooms/for-stay",
+        "/inventory/rooms-for-stay",
         headers=h,
         params={
             "property_id": str(pid),
