@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.bookings import BookingUnpaidFolioSummaryRead
+
 
 class DashboardSummaryRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -12,3 +14,7 @@ class DashboardSummaryRead(BaseModel):
     total_rooms: int = Field(ge=0)
     dirty_rooms: int = Field(ge=0)
     currency: str
+    unpaid_folio: list[BookingUnpaidFolioSummaryRead] = Field(
+        default_factory=list,
+        description="Bookings on this property with strictly positive folio balance.",
+    )

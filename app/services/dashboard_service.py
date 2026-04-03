@@ -15,7 +15,9 @@ from app.models.core.property import Property
 from app.models.core.room import Room
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
+from app.schemas.bookings import BookingUnpaidFolioSummaryRead
 from app.schemas.dashboard import DashboardSummaryRead
+from app.services.folio_service import list_unpaid_folio_summary_for_property
 
 
 class DashboardServiceError(Exception):
@@ -146,6 +148,20 @@ async def get_dashboard_summary(
         or 0,
     )
 
+    raw_unpaid = await list_unpaid_folio_summary_for_property(
+        session, tenant_id, property_id
+    )
+    unpaid_folio: list[BookingUnpaidFolioSummaryRead] = []
+    for bid, bal, fn, ln in raw_unpaid:
+        name = f"{fn} {ln}".strip()
+        unpaid_folio.append(
+            BookingUnpaidFolioSummaryRead(
+                booking_id=bid,
+                balance=format(bal, "f"),
+                guest_name=name if name else None,
+            ),
+        )
+
     return DashboardSummaryRead(
         arrivals_today=arrivals,
         departures_today=departures,
@@ -153,4 +169,5 @@ async def get_dashboard_summary(
         total_rooms=total_rooms,
         dirty_rooms=dirty_rooms,
         currency=prop.currency,
+        unpaid_folio=unpaid_folio,
     )

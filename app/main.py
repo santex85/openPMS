@@ -32,6 +32,7 @@ from app.api.routes import (
     rate_plans,
     room_types,
     rooms,
+    unpaid_folio_summary,
     webhooks,
 )
 from app.core.config import get_settings
@@ -150,6 +151,9 @@ def create_app() -> FastAPI:
             "Content-Type",
             "X-API-Key",
             "Cookie",
+            # Browsers list these on preflight when a script sets cache-busting headers on XHR.
+            "Cache-Control",
+            "Pragma",
         ],
         allow_credentials=True,
     )
@@ -172,6 +176,7 @@ def create_app() -> FastAPI:
         tags=["room-types"],
     )
     application.include_router(assignable_stay.router)
+    application.include_router(unpaid_folio_summary.router)
     application.include_router(inventory.router)
     application.include_router(
         rate_plans.router,

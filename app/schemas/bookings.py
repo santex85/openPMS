@@ -166,3 +166,14 @@ class BookingTapePage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BookingUnpaidFolioSummaryRead(BaseModel):
+    """Row for GET /bookings/unpaid-folio-summary (positive folio balance)."""
+
+    booking_id: UUID
+    balance: str = Field(description="Decimal string; positive means guest owes.")
+    guest_name: str | None = Field(
+        None,
+        description="Guest full name for dashboard display.",
+    )

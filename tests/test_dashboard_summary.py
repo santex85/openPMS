@@ -28,6 +28,8 @@ def test_dashboard_summary_shape(
     assert "total_rooms" in body
     assert "dirty_rooms" in body
     assert body["dirty_rooms"] >= 1
+    assert "unpaid_folio" in body
+    assert isinstance(body["unpaid_folio"], list)
 
 
 def test_dashboard_summary_unknown_property_404(

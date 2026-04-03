@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bookings.booking import Booking
 from app.models.bookings.folio_transaction import FolioTransaction
+from app.models.bookings.guest import Guest
 from app.services.audit_service import record_audit
 from app.schemas.folio import CHARGE_CATEGORIES, FolioPostRequest
 
@@ -74,6 +75,77 @@ async def compute_folio_balance(
     if raw is None:
         return Decimal("0.00")
     return Decimal(str(raw)).quantize(Decimal("0.01"))
+
+
+async def list_unpaid_folio_summary_for_property(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> list[tuple[UUID, Decimal, str, str]]:
+    """
+    Bookings under ``property_id`` whose folio balance (charges − payments) is strictly positive.
+
+    Returns ``(booking_id, balance, guest_first_name, guest_last_name)`` tuples.
+    """
+    charge_sum = func.coalesce(
+        func.sum(
+            case(
+                (
+                    FolioTransaction.transaction_type == "Charge",
+                    FolioTransaction.amount,
+                ),
+                else_=0,
+            ),
+        ),
+        0,
+    )
+    payment_sum = func.coalesce(
+        func.sum(
+            case(
+                (
+                    FolioTransaction.transaction_type == "Payment",
+                    FolioTransaction.amount,
+                ),
+                else_=0,
+            ),
+        ),
+        0,
+    )
+    balance_expr = charge_sum - payment_sum
+
+    bal_sq = (
+        select(FolioTransaction.booking_id, balance_expr.label("balance"))
+        .where(FolioTransaction.tenant_id == tenant_id)
+        .group_by(FolioTransaction.booking_id)
+        .having(balance_expr > 0)
+    ).subquery()
+
+    stmt = (
+        select(Booking.id, bal_sq.c.balance, Guest.first_name, Guest.last_name)
+        .select_from(Booking)
+        .join(bal_sq, bal_sq.c.booking_id == Booking.id)
+        .join(
+            Guest,
+            (Guest.tenant_id == Booking.tenant_id) & (Guest.id == Booking.guest_id),
+        )
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.property_id == property_id,
+        )
+        .order_by(bal_sq.c.balance.desc())
+    )
+    result = await session.execute(stmt)
+    out: list[tuple[UUID, Decimal, str, str]] = []
+    for bid, bal, fn, ln in result.all():
+        out.append(
+            (
+                bid,
+                Decimal(str(bal)).quantize(Decimal("0.01")),
+                str(fn),
+                str(ln),
+            ),
+        )
+    return out
 
 
 async def list_folio_transactions(

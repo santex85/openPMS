@@ -1,4 +1,4 @@
-"""Operational dashboard (property KPIs)."""
+"""Top-level unpaid folio summary (avoids /bookings/{{booking_id}} swallowing nested paths)."""
 
 from typing import Annotated
 from uuid import UUID
@@ -8,55 +8,37 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import BOOKINGS_READ
 from app.schemas.bookings import BookingUnpaidFolioSummaryRead
-from app.schemas.dashboard import DashboardSummaryRead
-from app.services.dashboard_service import DashboardServiceError, get_dashboard_summary
 from app.services.folio_service import list_unpaid_folio_summary_for_property
 from app.services.room_list_service import property_belongs_to_tenant
 
-router = APIRouter()
+router = APIRouter(tags=["bookings"])
 
-DashboardReadRolesDep = Annotated[
+UnpaidFolioReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "housekeeper", "receptionist")),
+    Depends(
+        require_roles(
+            "owner",
+            "manager",
+            "viewer",
+            "housekeeper",
+            "receptionist",
+        ),
+    ),
     Depends(require_scopes(BOOKINGS_READ)),
 ]
 
 
 @router.get(
-    "/summary",
-    response_model=DashboardSummaryRead,
-    summary="Property dashboard KPIs",
-)
-async def get_dashboard_summary_endpoint(
-    _: DashboardReadRolesDep,
-    response: Response,
-    session: SessionDep,
-    tenant_id: TenantIdDep,
-    property_id: UUID = Query(..., description="Property to summarize"),
-) -> DashboardSummaryRead:
-    response.headers["Cache-Control"] = "private, no-store"
-    try:
-        return await get_dashboard_summary(session, tenant_id, property_id)
-    except DashboardServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.detail,
-        ) from exc
-
-
-@router.get(
     "/unpaid-folio-summary",
     response_model=list[BookingUnpaidFolioSummaryRead],
-    summary="Bookings with positive folio balance",
 )
-async def get_dashboard_unpaid_folio_summary(
-    _: DashboardReadRolesDep,
+async def get_unpaid_folio_summary_at_root(
+    _: UnpaidFolioReadRolesDep,
     response: Response,
     session: SessionDep,
     tenant_id: TenantIdDep,
     property_id: UUID = Query(..., description="Property scope"),
 ) -> list[BookingUnpaidFolioSummaryRead]:
-    """Alias for GET /bookings/unpaid-folio-summary (avoids /bookings/{{id}} swallow on old builds)."""
     response.headers["Cache-Control"] = "private, no-store"
     if not await property_belongs_to_tenant(session, tenant_id, property_id):
         raise HTTPException(

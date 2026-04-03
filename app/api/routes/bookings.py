@@ -32,6 +32,7 @@ from app.schemas.bookings import (
     BookingPatchRequest,
     BookingTapePage,
     BookingTapeRead,
+    BookingUnpaidFolioSummaryRead,
 )
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.schemas.folio import (
@@ -58,8 +59,10 @@ from app.services.folio_service import (
     FolioError,
     add_folio_entry,
     list_folio_transactions,
+    list_unpaid_folio_summary_for_property,
     reverse_folio_transaction,
 )
+from app.services.room_list_service import property_belongs_to_tenant
 from app.services.pricing_service import MissingRatesError
 from app.services.audit_service import record_audit
 from app.services.webhook_runner import (
@@ -161,6 +164,40 @@ async def get_bookings_assignable_rooms_for_stay(
             detail="property or room type not found",
         )
     return [RoomRead.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/unpaid-folio-summary",
+    response_model=list[BookingUnpaidFolioSummaryRead],
+)
+async def get_unpaid_folio_summary(
+    _: BookingsReadRolesDep,
+    response: Response,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    property_id: UUID = Query(..., description="Property scope"),
+) -> list[BookingUnpaidFolioSummaryRead]:
+    """Bookings on this property with strictly positive folio balance (charges − payments)."""
+    response.headers["Cache-Control"] = "private, no-store"
+    if not await property_belongs_to_tenant(session, tenant_id, property_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="property not found",
+        )
+    raw = await list_unpaid_folio_summary_for_property(
+        session, tenant_id, property_id
+    )
+    out: list[BookingUnpaidFolioSummaryRead] = []
+    for bid, bal, fn, ln in raw:
+        name = f"{fn} {ln}".strip()
+        out.append(
+            BookingUnpaidFolioSummaryRead(
+                booking_id=bid,
+                balance=format(bal, "f"),
+                guest_name=name if name else None,
+            ),
+        )
+    return out
 
 
 @router.get(
