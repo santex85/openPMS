@@ -63,6 +63,28 @@ class WebhookSubscriptionCreateResponse(WebhookSubscriptionRead):
     )
 
 
+class WebhookSecretsReencryptRequest(BaseModel):
+    """Fernet key produced by ``Fernet.generate_key().decode()`` (44-char URL-safe base64)."""
+
+    new_fernet_key: str = Field(
+        ...,
+        description=(
+            "Target Fernet key. After this call succeeds, set WEBHOOK_SECRET_FERNET_KEY "
+            "to this exact value and restart the API."
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WebhookSecretsReencryptResponse(BaseModel):
+    updated_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of subscriptions whose stored secret was re-encrypted.",
+    )
+
+
 class WebhookSubscriptionPatch(BaseModel):
     url: str | None = Field(
         None,

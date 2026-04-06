@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 
 from app.api.deps import (
@@ -17,6 +17,8 @@ from app.core.api_scopes import WEBHOOKS_READ, WEBHOOKS_WRITE
 from app.models.integrations.webhook_delivery_log import WebhookDeliveryLog
 from app.schemas.webhooks import (
     WebhookDeliveryLogRead,
+    WebhookSecretsReencryptRequest,
+    WebhookSecretsReencryptResponse,
     WebhookSubscriptionCreate,
     WebhookSubscriptionCreateResponse,
     WebhookSubscriptionPatch,
@@ -29,7 +31,9 @@ from app.services.webhook_subscription_service import (
     delete_subscription,
     list_subscriptions,
     patch_subscription,
+    reencrypt_subscription_secrets_for_tenant,
 )
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -43,6 +47,13 @@ WebhooksWriteDep = Annotated[
     None,
     Depends(require_jwt_user()),
     Depends(require_roles("owner", "manager")),
+    Depends(require_scopes(WEBHOOKS_WRITE)),
+]
+
+ReencryptWebhookSecretsDep = Annotated[
+    None,
+    Depends(require_jwt_user()),
+    Depends(require_roles("owner")),
     Depends(require_scopes(WEBHOOKS_WRITE)),
 ]
 
@@ -123,18 +134,60 @@ async def create_webhook_subscription(
     return WebhookSubscriptionCreateResponse(**base.model_dump(), secret=secret)
 
 
+@router.post(
+    "/subscriptions/reencrypt-secrets",
+    response_model=WebhookSecretsReencryptResponse,
+    summary="Re-encrypt webhook signing secrets (Fernet rotation)",
+    description=(
+        "Owner-only. Decrypts each subscription secret using the key the API is "
+        "currently running with, then encrypts again with ``new_fernet_key``. "
+        "Deploy that same value as **WEBHOOK_SECRET_FERNET_KEY** and restart all "
+        "instances before the next rotation so verification and further encrypts match."
+    ),
+)
+@limiter.limit("30/minute")
+async def reencrypt_webhook_subscription_secrets(
+    request: Request,
+    _: ReencryptWebhookSecretsDep,
+    body: WebhookSecretsReencryptRequest,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> WebhookSecretsReencryptResponse:
+    _ = request
+    try:
+        updated = await reencrypt_subscription_secrets_for_tenant(
+            session,
+            tenant_id,
+            body.new_fernet_key,
+        )
+    except WebhookSubscriptionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="webhook_subscription.secrets_reencrypt",
+        entity_type="webhook_subscription",
+        entity_id=None,
+        new_values={"updated_count": updated},
+    )
+    return WebhookSecretsReencryptResponse(updated_count=updated)
+
+
 @router.patch(
     "/subscriptions/{subscription_id}",
     response_model=WebhookSubscriptionRead,
     summary="Update webhook subscription",
 )
+@limiter.limit("120/minute")
 async def patch_webhook_subscription(
+    request: Request,
     _: WebhooksWriteDep,
     subscription_id: UUID,
     body: WebhookSubscriptionPatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> WebhookSubscriptionRead:
+    _ = request
     data = body.model_dump(exclude_unset=True)
     try:
         row = await patch_subscription(
@@ -164,12 +217,15 @@ async def patch_webhook_subscription(
     summary="Delete webhook subscription",
     description="Removes the subscription. Delivery logs are removed via ON DELETE CASCADE.",
 )
+@limiter.limit("120/minute")
 async def delete_webhook_subscription(
+    request: Request,
     _: WebhooksWriteDep,
     subscription_id: UUID,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> None:
+    _ = request
     try:
         await delete_subscription(session, tenant_id, subscription_id)
     except WebhookSubscriptionError as exc:

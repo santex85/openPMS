@@ -11,7 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.webhook_events import VALID_WEBHOOK_EVENTS
-from app.core.webhook_secrets import encrypt_webhook_secret
+from app.core.webhook_url_validation import (
+    WebhookUrlUnsafeError,
+    assert_webhook_target_ips_safe_for_url,
+)
+from app.core.webhook_secrets import (
+    decrypt_webhook_secret,
+    encrypt_plaintext_with_fernet_key,
+    encrypt_webhook_secret,
+)
 from app.models.integrations.webhook_subscription import WebhookSubscription
 
 
@@ -35,6 +43,10 @@ def _validate_https_url(url: str) -> str:
         raise WebhookSubscriptionError("url must use HTTPS", status_code=422)
     if not parsed.netloc:
         raise WebhookSubscriptionError("url must include a host", status_code=422)
+    try:
+        assert_webhook_target_ips_safe_for_url(trimmed)
+    except WebhookUrlUnsafeError as exc:
+        raise WebhookSubscriptionError(str(exc), status_code=422) from exc
     return trimmed
 
 
@@ -126,6 +138,35 @@ async def patch_subscription(
         row.is_active = is_active
     await session.flush()
     return row
+
+
+async def reencrypt_subscription_secrets_for_tenant(
+    session: AsyncSession,
+    tenant_id: UUID,
+    new_fernet_key: str,
+) -> int:
+    """
+    Re-encrypt stored signing secrets from current app key to ``new_fernet_key``.
+    Caller must deploy the same key as ``WEBHOOK_SECRET_FERNET_KEY`` after this
+    succeeds, then restart workers.
+    """
+    try:
+        encrypt_plaintext_with_fernet_key("", new_fernet_key)
+    except ValueError as exc:
+        raise WebhookSubscriptionError(str(exc), status_code=422) from exc
+
+    rows = await list_subscriptions(session, tenant_id)
+    settings = get_settings()
+    updated = 0
+    for row in rows:
+        try:
+            plain = decrypt_webhook_secret(settings, row.secret)
+            row.secret = encrypt_plaintext_with_fernet_key(plain, new_fernet_key)
+        except ValueError as exc:
+            raise WebhookSubscriptionError(str(exc), status_code=422) from exc
+        updated += 1
+    await session.flush()
+    return updated
 
 
 async def delete_subscription(
