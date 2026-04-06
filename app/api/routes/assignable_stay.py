@@ -2,10 +2,11 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep
 from app.api.routes.inventory import InventoryReadRolesDep, rooms_for_stay_query_params
+from app.core.rate_limit import limiter
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.services.room_assignable_service import list_assignable_rooms_for_stay
 
@@ -13,7 +14,9 @@ router = APIRouter(tags=["rooms"])
 
 
 @router.get("/assignable-rooms-for-stay", response_model=list[RoomRead])
+@limiter.limit("60/minute")
 async def get_assignable_rooms_for_stay_at_root(
+    request: Request,
     _: InventoryReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -23,6 +26,7 @@ async def get_assignable_rooms_for_stay_at_root(
     ],
 ) -> list[RoomRead]:
     """Same as GET /inventory/rooms-for-stay; not under /rooms so {room_id} cannot swallow the path."""
+    _ = request
     rows = await list_assignable_rooms_for_stay(session, tenant_id, params)
     if rows is None:
         raise HTTPException(

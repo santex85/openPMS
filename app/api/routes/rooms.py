@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from app.services.room_service import (
     patch_room,
     soft_delete_room,
 )
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -159,13 +160,16 @@ async def post_room(
 
 
 @router.patch("/{room_id}", response_model=RoomRead)
+@limiter.limit("120/minute")
 async def patch_room_by_id(
+    request: Request,
     room_id: UUID,
     _: RoomWriteRolesDep,
     body: RoomPatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> RoomRead:
+    _ = request
     data = body.model_dump(exclude_unset=True)
     try:
         row = await patch_room(
@@ -190,12 +194,15 @@ async def patch_room_by_id(
 
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("120/minute")
 async def delete_room(
+    request: Request,
     room_id: UUID,
     _: RoomWriteRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> None:
+    _ = request
     try:
         await soft_delete_room(session, tenant_id, room_id)
     except RoomServiceError as exc:

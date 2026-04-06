@@ -3,13 +3,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.services import property_service
 from app.services.audit_service import record_audit
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -75,13 +76,16 @@ async def get_property(
 
 
 @router.patch("/{property_id}", response_model=PropertyRead)
+@limiter.limit("120/minute")
 async def patch_property(
+    request: Request,
     _: PropertyWriteRolesDep,
     property_id: UUID,
     body: PropertyPatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> PropertyRead:
+    _ = request
     prop = await property_service.update_property(session, tenant_id, property_id, body)
     if prop is None:
         raise HTTPException(

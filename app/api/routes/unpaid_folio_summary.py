@@ -3,10 +3,11 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import BOOKINGS_READ
+from app.core.rate_limit import limiter
 from app.schemas.bookings import BookingUnpaidFolioSummaryRead
 from app.services.folio_service import list_unpaid_folio_summary_for_property
 from app.services.room_list_service import property_belongs_to_tenant
@@ -32,13 +33,16 @@ UnpaidFolioReadRolesDep = Annotated[
     "/unpaid-folio-summary",
     response_model=list[BookingUnpaidFolioSummaryRead],
 )
+@limiter.limit("60/minute")
 async def get_unpaid_folio_summary_at_root(
+    request: Request,
     _: UnpaidFolioReadRolesDep,
     response: Response,
     session: SessionDep,
     tenant_id: TenantIdDep,
     property_id: UUID = Query(..., description="Property scope"),
 ) -> list[BookingUnpaidFolioSummaryRead]:
+    _ = request
     response.headers["Cache-Control"] = "private, no-store"
     if not await property_belongs_to_tenant(session, tenant_id, property_id):
         raise HTTPException(

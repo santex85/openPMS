@@ -3,13 +3,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import ROOM_TYPES_READ, ROOM_TYPES_WRITE
 from app.schemas.room_type import RoomTypeCreate, RoomTypePatch, RoomTypeRead
 from app.services import room_type_service
 from app.services.audit_service import record_audit
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -86,13 +87,16 @@ async def get_room_type(
 
 
 @router.patch("/{room_type_id}", response_model=RoomTypeRead)
+@limiter.limit("120/minute")
 async def patch_room_type(
+    request: Request,
     _: RoomTypeWriteRolesDep,
     room_type_id: UUID,
     body: RoomTypePatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> RoomTypeRead:
+    _ = request
     try:
         rt = await room_type_service.patch_room_type(
             session, tenant_id, room_type_id, body
@@ -120,12 +124,15 @@ async def patch_room_type(
 
 
 @router.delete("/{room_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("120/minute")
 async def delete_room_type(
+    request: Request,
     _: RoomTypeWriteRolesDep,
     room_type_id: UUID,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> None:
+    _ = request
     try:
         await room_type_service.soft_delete_room_type(
             session, tenant_id, room_type_id

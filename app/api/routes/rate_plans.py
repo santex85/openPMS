@@ -3,10 +3,11 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATE_PLANS_READ, RATE_PLANS_WRITE
+from app.core.rate_limit import limiter
 from app.schemas.rate_plan import RatePlanCreate, RatePlanPatch, RatePlanRead
 from app.services.audit_service import record_audit
 from app.services.rate_plan_service import (
@@ -81,13 +82,16 @@ async def post_rate_plan(
 
 
 @router.patch("/{rate_plan_id}", response_model=RatePlanRead)
+@limiter.limit("120/minute")
 async def patch_rate_plan_by_id(
+    request: Request,
     rate_plan_id: UUID,
     _: RatePlanWriteRolesDep,
     body: RatePlanPatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> RatePlanRead:
+    _ = request
     try:
         row = await patch_rate_plan(session, tenant_id, rate_plan_id, body)
     except RatePlanServiceError as exc:
@@ -104,12 +108,15 @@ async def patch_rate_plan_by_id(
 
 
 @router.delete("/{rate_plan_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("120/minute")
 async def delete_rate_plan_by_id(
+    request: Request,
     rate_plan_id: UUID,
     _: RatePlanWriteRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> None:
+    _ = request
     try:
         await delete_rate_plan(session, tenant_id, rate_plan_id)
     except RatePlanServiceError as exc:

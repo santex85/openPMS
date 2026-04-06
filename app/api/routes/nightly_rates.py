@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import RATES_READ, RATES_WRITE
+from app.core.rate_limit import limiter
 from app.schemas.nightly_rates import (
     BulkRatesPutRequest,
     BulkRatesPutResponse,
@@ -36,7 +37,9 @@ RatesWriteRolesDep = Annotated[
 
 
 @router.get("", response_model=list[RateRead])
+@limiter.limit("60/minute")
 async def get_rates(
+    request: Request,
     _: RatesReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -45,6 +48,7 @@ async def get_rates(
     start_date: date = Query(...),
     end_date: date = Query(...),
 ) -> list[RateRead]:
+    _ = request
     try:
         rows = await list_rates_for_period(
             session,
@@ -60,6 +64,7 @@ async def get_rates(
 
 
 @router.put("/bulk", response_model=BulkRatesPutResponse)
+@limiter.limit("120/minute")
 async def put_rates_bulk(
     request: Request,
     background_tasks: BackgroundTasks,

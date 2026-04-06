@@ -1,0 +1,9 @@
+# TLS: use `tls internal` for local self-signed certs, or set your real hostname + email for ACME.
+:80 {
+	reverse_proxy api:8000
+}
+
+:443 {
+	tls internal
+	reverse_proxy api:8000
+}

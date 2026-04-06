@@ -43,13 +43,14 @@ async def list_audit_logs(
     *,
     limit: int,
     offset: int,
+    action: str | None = None,
+    entity_type: str | None = None,
 ) -> list[AuditLog]:
-    stmt = (
-        select(AuditLog)
-        .where(AuditLog.tenant_id == tenant_id)
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    stmt = select(AuditLog).where(AuditLog.tenant_id == tenant_id)
+    if action is not None and action.strip():
+        stmt = stmt.where(AuditLog.action == action.strip())
+    if entity_type is not None and entity_type.strip():
+        stmt = stmt.where(AuditLog.entity_type == entity_type.strip())
+    stmt = stmt.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
     result = await session.execute(stmt)
     return list(result.scalars().all())

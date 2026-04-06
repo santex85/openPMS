@@ -1,5 +1,7 @@
 """OpenPMS API entrypoint."""
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -35,12 +38,14 @@ from app.api.routes import (
     unpaid_folio_summary,
     webhooks,
 )
-from app.core.config import get_settings
+from app.core.config import ensure_jwt_secret_not_weak, get_settings
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.request_id import RequestIdASGIMiddleware
 from app.middleware.tenant_jwt import TenantJwtASGIMiddleware
+from app.services.webhook_delivery_engine import webhook_delivery_worker_loop
+from app.tasks.cleanup_webhook_logs import cleanup_old_delivery_logs
 
 
 @limiter.exempt
@@ -48,15 +53,67 @@ async def _health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+async def _webhook_log_retention_loop(app: FastAPI) -> None:
+    log = structlog.get_logger()
+    while True:
+        try:
+            settings = get_settings()
+            factory = app.state.async_session_factory
+            async with factory() as session:
+                async with session.begin():
+                    deleted = await cleanup_old_delivery_logs(
+                        session,
+                        settings.webhook_log_retention_days,
+                    )
+            log.info(
+                "webhook_delivery_logs_retention_cleanup",
+                deleted=deleted,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("webhook_delivery_logs_retention_cleanup_failed")
+        await asyncio.sleep(86400)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
+    ensure_jwt_secret_not_weak(settings)
+    log = structlog.get_logger()
+    if not settings.refresh_cookie_secure:
+        log.warning(
+            "refresh_cookie_secure_disabled",
+            hint="only for local HTTP dev; use HTTPS + Secure cookies in production",
+        )
+    if settings.jwt_algorithm.upper() == "HS256" and not (
+        settings.webhook_secret_fernet_key or ""
+    ).strip():
+        log.warning(
+            "webhook_secret_fernet_key_missing",
+            hint="Fernet key is derived from JWT_SECRET; set WEBHOOK_SECRET_FERNET_KEY to manage rotation explicitly",
+        )
     engine, session_factory = create_async_engine_and_sessionmaker(settings)
     app.state.db_engine = engine
     app.state.async_session_factory = session_factory
-    yield
-    await engine.dispose()
+    stop_webhook_worker = asyncio.Event()
+    webhook_worker_task = asyncio.create_task(
+        webhook_delivery_worker_loop(session_factory, stop_webhook_worker),
+        name="webhook_delivery_worker",
+    )
+    cleanup_task = asyncio.create_task(_webhook_log_retention_loop(app))
+    try:
+        yield
+    finally:
+        stop_webhook_worker.set()
+        webhook_worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await webhook_worker_task
+        cleanup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
+        await engine.dispose()
 
 
 def create_app() -> FastAPI:
@@ -116,6 +173,19 @@ def create_app() -> FastAPI:
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    @application.exception_handler(SATimeoutError)
+    async def _pool_exhausted_handler(
+        request: Request,
+        exc: SATimeoutError,
+    ) -> JSONResponse:
+        _ = request
+        _ = exc
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Service temporarily unavailable"},
+            headers={"Retry-After": "5"},
+        )
+
     @application.exception_handler(Exception)
     async def _unhandled_exception_handler(
         request: Request,
@@ -141,6 +211,9 @@ def create_app() -> FastAPI:
             },
         )
 
+    # Order (last add = outermost): RequestId → CORS → TenantJwt → SlowAPI → routes.
+    # TenantJwt must run before SlowAPI so rate_limit_key can use request.state.tenant_id.
+    application.add_middleware(SlowAPIMiddleware)
     application.add_middleware(TenantJwtASGIMiddleware)
     application.add_middleware(
         CORSMiddleware,
@@ -157,7 +230,6 @@ def create_app() -> FastAPI:
         ],
         allow_credentials=True,
     )
-    application.add_middleware(SlowAPIMiddleware)
     application.add_middleware(RequestIdASGIMiddleware)
 
     application.include_router(

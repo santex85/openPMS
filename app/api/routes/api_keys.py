@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import (
     SessionDep,
@@ -25,6 +25,7 @@ from app.services.api_key_service import (
     patch_api_key,
 )
 from app.services.audit_service import record_audit
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -89,13 +90,16 @@ async def post_api_key(
 
 
 @router.patch("/{key_id}", response_model=ApiKeyRead)
+@limiter.limit("120/minute")
 async def patch_api_key_route(
+    request: Request,
     _: ApiKeysManageDep,
     key_id: UUID,
     body: ApiKeyPatchRequest,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> ApiKeyRead:
+    _ = request
     data = body.model_dump(exclude_unset=True)
     try:
         row = await patch_api_key(
@@ -122,12 +126,15 @@ async def patch_api_key_route(
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("120/minute")
 async def delete_api_key_route(
+    request: Request,
     _: ApiKeysManageDep,
     key_id: UUID,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> None:
+    _ = request
     try:
         await delete_api_key(session, tenant_id, key_id)
     except ApiKeyServiceError as exc:

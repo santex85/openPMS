@@ -104,13 +104,16 @@ async def post_guest(
 
 
 @router.patch("/{guest_id}", response_model=GuestRead)
+@limiter.limit("120/minute")
 async def patch_guest_by_id(
+    request: Request,
     guest_id: UUID,
     _: GuestWriteRolesDep,
     body: GuestPatch,
     session: SessionDep,
     tenant_id: TenantIdDep,
 ) -> GuestRead:
+    _ = request
     try:
         row = await patch_guest(session, tenant_id, guest_id, body)
     except GuestServiceError as exc:

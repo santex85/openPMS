@@ -65,6 +65,10 @@ class BookingCreateRequest(BaseModel):
         description="Booking channel or origin.",
         examples=["api", "direct"],
     )
+    force_new_guest: bool = Field(
+        default=False,
+        description="If true, always create a new guest row (no dedupe by email).",
+    )
 
     @model_validator(mode="after")
     def validate_stay_dates(self) -> "BookingCreateRequest":
@@ -87,6 +91,10 @@ class BookingCreateResponse(BaseModel):
     guest_id: UUID
     total_amount: Decimal
     nights: list[NightlyPriceLine]
+    guest_merged: bool = Field(
+        default=False,
+        description="True when an existing guest was matched by email instead of creating a new profile.",
+    )
 
 
 class BookingRead(BaseModel):

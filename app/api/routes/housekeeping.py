@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.deps import (
     OptionalUserIdWriteDep,
@@ -25,6 +25,7 @@ from app.services.housekeeping_service import (
     list_rooms_for_housekeeping,
     patch_room_housekeeping,
 )
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/housekeeping", tags=["housekeeping"])
 
@@ -72,7 +73,9 @@ async def get_housekeeping_board(
 
 
 @router.patch("/{room_id}", response_model=HousekeepingPatchResponse)
+@limiter.limit("120/minute")
 async def patch_housekeeping_room(
+    request: Request,
     room_id: UUID,
     _: HousekeepingWriteRolesDep,
     body: HousekeepingPatchRequest,
@@ -80,6 +83,7 @@ async def patch_housekeeping_room(
     tenant_id: TenantIdDep,
     user_id: OptionalUserIdWriteDep,
 ) -> HousekeepingPatchResponse:
+    _ = request
     try:
         room = await patch_room_housekeeping(
             session,

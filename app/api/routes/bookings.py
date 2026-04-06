@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     OptionalUserIdWriteDep,
@@ -99,6 +100,7 @@ BookingsWriteRolesDep = Annotated[
 
 
 @router.get("", response_model=BookingTapePage)
+@limiter.limit("60/minute")
 async def get_bookings(
     request: Request,
     _: BookingsReadRolesDep,
@@ -279,10 +281,63 @@ async def post_booking_folio(
     return FolioTransactionRead.model_validate(tx)
 
 
-@router.delete(
-    "/{booking_id}/folio/{transaction_id}",
+async def _reverse_folio_response(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+    transaction_id: UUID,
+    *,
+    created_by: UUID | None,
+) -> FolioTransactionRead:
+    """Shared storno handler: inserts offsetting row; original row remains."""
+    try:
+        rev = await reverse_folio_transaction(
+            session,
+            tenant_id,
+            booking_id,
+            transaction_id,
+            created_by=created_by,
+        )
+    except FolioError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+    return FolioTransactionRead.model_validate(rev)
+
+
+@router.post(
+    "/{booking_id}/folio/{transaction_id}/reverse",
     status_code=status.HTTP_201_CREATED,
     response_model=FolioTransactionRead,
+    summary="Reverse (storno) a folio transaction",
+)
+async def post_booking_folio_reverse(
+    _: BookingsWriteRolesDep,
+    booking_id: UUID,
+    transaction_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    user_id: OptionalUserIdWriteDep,
+) -> FolioTransactionRead:
+    """
+    Storno: creates a new offsetting folio entry. The original transaction is not deleted.
+    """
+    return await _reverse_folio_response(
+        session,
+        tenant_id,
+        booking_id,
+        transaction_id,
+        created_by=user_id,
+    )
+
+
+@router.delete(
+    "/{booking_id}/folio/{transaction_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=FolioTransactionRead,
+    deprecated=True,
+    summary="[Deprecated] Reverse folio via DELETE",
 )
 async def delete_booking_folio_transaction(
     _: BookingsWriteRolesDep,
@@ -293,22 +348,17 @@ async def delete_booking_folio_transaction(
     user_id: OptionalUserIdWriteDep,
 ) -> FolioTransactionRead:
     """
-    Storno: inserts an offsetting folio row; the original transaction is not removed.
+    **Deprecated** — use ``POST /bookings/{booking_id}/folio/{transaction_id}/reverse``
+    (201 Created). This route remains as a backward-compatible alias and returns **200 OK**
+    with the new reversal row (storno semantics: nothing is physically deleted).
     """
-    try:
-        rev = await reverse_folio_transaction(
-            session,
-            tenant_id,
-            booking_id,
-            transaction_id,
-            created_by=user_id,
-        )
-    except FolioError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.detail,
-        ) from exc
-    return FolioTransactionRead.model_validate(rev)
+    return await _reverse_folio_response(
+        session,
+        tenant_id,
+        booking_id,
+        transaction_id,
+        created_by=user_id,
+    )
 
 
 @router.patch(
@@ -318,6 +368,7 @@ async def delete_booking_folio_transaction(
         204: {"description": "Updated; no folio warning."},
     },
 )
+@limiter.limit("120/minute")
 async def patch_booking_by_id(
     request: Request,
     background_tasks: BackgroundTasks,

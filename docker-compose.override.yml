@@ -1,0 +1,8 @@
+# Local development overrides (included automatically by `docker compose`).
+# Exposes the API on :8000 without going through Caddy and mounts tests for `make test-docker`.
+services:
+  api:
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./tests:/app/tests:ro

@@ -1,4 +1,4 @@
-"""Folio storno (DELETE) edge cases."""
+"""Folio storno (POST …/reverse; legacy DELETE) edge cases."""
 
 from __future__ import annotations
 
@@ -72,8 +72,8 @@ def test_folio_reverse_unknown_transaction_404(
     user_id: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
     fake_tx = uuid4()
-    r = client.delete(
-        f"/bookings/{booking_id}/folio/{fake_tx}",
+    r = client.post(
+        f"/bookings/{booking_id}/folio/{fake_tx}/reverse",
         headers=auth_headers_user(tenant_id, user_id),
     )
     assert r.status_code == 404
@@ -87,8 +87,8 @@ def test_folio_reverse_zero_amount_409(
 ) -> None:
     tenant_id, booking_id, tx_id = zero_amount_tx_id
     user_id: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
-    r = client.delete(
-        f"/bookings/{booking_id}/folio/{tx_id}",
+    r = client.post(
+        f"/bookings/{booking_id}/folio/{tx_id}/reverse",
         headers=auth_headers_user(tenant_id, user_id),
     )
     assert r.status_code == 409
@@ -119,13 +119,41 @@ def test_folio_double_storno_second_call_still_201(
     )
     assert mr.status_code == 201
     tx_id = mr.json()["id"]
-    r1 = client.delete(
-        f"/bookings/{booking_id}/folio/{tx_id}",
+    r1 = client.post(
+        f"/bookings/{booking_id}/folio/{tx_id}/reverse",
         headers=auth_headers_user(tenant_id, user_id),
     )
     assert r1.status_code == 201
-    r2 = client.delete(
-        f"/bookings/{booking_id}/folio/{tx_id}",
+    r2 = client.post(
+        f"/bookings/{booking_id}/folio/{tx_id}/reverse",
         headers=auth_headers_user(tenant_id, user_id),
     )
     assert r2.status_code == 201
+
+
+def test_folio_reverse_deprecated_delete_returns_200(
+    client,
+    folio_scenario: dict,
+    auth_headers_user,
+) -> None:
+    tenant_id: UUID = folio_scenario["tenant_id"]  # type: ignore[assignment]
+    user_id: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
+    booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
+    mr = client.post(
+        f"/bookings/{booking_id}/folio",
+        headers=auth_headers_user(tenant_id, user_id),
+        json={
+            "entry_type": "charge",
+            "amount": "5.00",
+            "category": "minibar",
+            "description": "Tea",
+        },
+    )
+    assert mr.status_code == 201
+    tx_id = mr.json()["id"]
+    dr = client.delete(
+        f"/bookings/{booking_id}/folio/{tx_id}",
+        headers=auth_headers_user(tenant_id, user_id),
+    )
+    assert dr.status_code == 200
+    assert "Reversal" in dr.json()["description"]

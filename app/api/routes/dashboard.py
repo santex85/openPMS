@@ -3,10 +3,11 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import BOOKINGS_READ
+from app.core.rate_limit import limiter
 from app.schemas.bookings import BookingUnpaidFolioSummaryRead
 from app.schemas.dashboard import DashboardSummaryRead
 from app.services.dashboard_service import DashboardServiceError, get_dashboard_summary
@@ -27,13 +28,16 @@ DashboardReadRolesDep = Annotated[
     response_model=DashboardSummaryRead,
     summary="Property dashboard KPIs",
 )
+@limiter.limit("60/minute")
 async def get_dashboard_summary_endpoint(
+    request: Request,
     _: DashboardReadRolesDep,
     response: Response,
     session: SessionDep,
     tenant_id: TenantIdDep,
     property_id: UUID = Query(..., description="Property to summarize"),
 ) -> DashboardSummaryRead:
+    _ = request
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return await get_dashboard_summary(session, tenant_id, property_id)
@@ -49,7 +53,9 @@ async def get_dashboard_summary_endpoint(
     response_model=list[BookingUnpaidFolioSummaryRead],
     summary="Bookings with positive folio balance",
 )
+@limiter.limit("60/minute")
 async def get_dashboard_unpaid_folio_summary(
+    request: Request,
     _: DashboardReadRolesDep,
     response: Response,
     session: SessionDep,
@@ -57,6 +63,7 @@ async def get_dashboard_unpaid_folio_summary(
     property_id: UUID = Query(..., description="Property scope"),
 ) -> list[BookingUnpaidFolioSummaryRead]:
     """Alias for GET /bookings/unpaid-folio-summary (avoids /bookings/{{id}} swallow on old builds)."""
+    _ = request
     response.headers["Cache-Control"] = "private, no-store"
     if not await property_belongs_to_tenant(session, tenant_id, property_id):
         raise HTTPException(

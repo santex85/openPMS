@@ -57,7 +57,7 @@ def test_post_payment_reduces_balance(
     assert gr.json()["balance"] == "100.00"
 
 
-def test_delete_folio_creates_reversal_row(
+def test_post_folio_reverse_creates_reversal_row(
     client,
     folio_scenario: dict,
     auth_headers,
@@ -85,8 +85,8 @@ def test_delete_folio_creates_reversal_row(
         ),
     ).json()
     assert before["balance"] == "175.00"
-    dr = client.delete(
-        f"/bookings/{booking_id}/folio/{tx_id}",
+    dr = client.post(
+        f"/bookings/{booking_id}/folio/{tx_id}/reverse",
         headers=auth_headers_user(tenant_id, user_id),
     )
     assert dr.status_code == 201

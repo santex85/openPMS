@@ -6,7 +6,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKeyConstraint, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKeyConstraint,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +26,10 @@ if TYPE_CHECKING:
 class Booking(Base):
     __tablename__ = "bookings"
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','confirmed','checked_in','checked_out','cancelled','no_show')",
+            name="ck_booking_status",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "property_id"],
             ["properties.tenant_id", "properties.id"],

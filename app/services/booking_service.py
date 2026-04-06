@@ -101,8 +101,32 @@ async def _get_or_create_guest_for_booking(
     session: AsyncSession,
     tenant_id: UUID,
     payload: GuestPayload,
-) -> Guest:
+    *,
+    force_new_guest: bool = False,
+) -> tuple[Guest, bool]:
     email_norm = payload.email.strip().lower()
+    if force_new_guest:
+        guest = Guest(
+            tenant_id=tenant_id,
+            first_name=payload.first_name.strip(),
+            last_name=payload.last_name.strip(),
+            email=email_norm,
+            phone=payload.phone.strip(),
+            passport_data=(
+                payload.passport_data.strip() if payload.passport_data else None
+            ),
+        )
+        session.add(guest)
+        try:
+            async with session.begin_nested():
+                await session.flush()
+        except IntegrityError:
+            session.expunge(guest)
+            raise InvalidBookingContextError(
+                "guest with this email already exists for this tenant",
+            ) from None
+        return guest, False
+
     existing = await session.scalar(
         select(Guest).where(
             Guest.tenant_id == tenant_id,
@@ -110,7 +134,7 @@ async def _get_or_create_guest_for_booking(
         ),
     )
     if existing is not None:
-        return existing
+        return existing, True
 
     guest = Guest(
         tenant_id=tenant_id,
@@ -138,8 +162,8 @@ async def _get_or_create_guest_for_booking(
             raise InvalidBookingContextError(
                 "could not create or resolve guest by email",
             ) from None
-        return again
-    return guest
+        return again, True
+    return guest, False
 
 
 async def _mark_assigned_rooms_dirty_on_checkout(
@@ -214,15 +238,6 @@ async def create_booking(
 ) -> BookingCreateResponse:
     nights = iter_stay_nights(body.check_in, body.check_out)
 
-    total, per_night = await sum_rates_for_stay(
-        session,
-        tenant_id,
-        body.room_type_id,
-        body.rate_plan_id,
-        body.check_in,
-        body.check_out,
-    )
-
     await _require_room_type_on_property(
         session,
         tenant_id,
@@ -236,6 +251,15 @@ async def create_booking(
         body.rate_plan_id,
     )
 
+    total, per_night = await sum_rates_for_stay(
+        session,
+        tenant_id,
+        body.room_type_id,
+        body.rate_plan_id,
+        body.check_in,
+        body.check_out,
+    )
+
     ledger_rows = await lock_and_validate_availability(
         session,
         tenant_id,
@@ -245,10 +269,11 @@ async def create_booking(
     )
     increment_booked_rooms(ledger_rows, 1)
 
-    guest = await _get_or_create_guest_for_booking(
+    guest, guest_merged = await _get_or_create_guest_for_booking(
         session,
         tenant_id,
         body.guest,
+        force_new_guest=body.force_new_guest,
     )
 
     booking = Booking(
@@ -294,6 +319,7 @@ async def create_booking(
         guest_id=guest.id,
         total_amount=total,
         nights=[NightlyPriceLine(date=d, price=p) for d, p in per_night],
+        guest_merged=guest_merged,
     )
 
 

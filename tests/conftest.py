@@ -21,6 +21,7 @@ from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
 
 os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-key-minimum-32-characters!!")
+os.environ.setdefault("ALLOW_PUBLIC_REGISTRATION", "true")
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test",

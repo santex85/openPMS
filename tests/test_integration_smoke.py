@@ -117,14 +117,14 @@ def test_webhook_subscription_create(
         "/webhooks/subscriptions",
         headers=h,
         json={
-            "url": "https://hooks.example.com/openpms",
+            "url": "https://example.com/openpms-webhook",
             "events": ["booking.created"],
             "is_active": True,
         },
     )
     assert r.status_code == 201
     data = r.json()
-    assert data["url"] == "https://hooks.example.com/openpms"
+    assert data["url"] == "https://example.com/openpms-webhook"
     assert "secret" in data
     assert "booking.created" in data["events"]
 

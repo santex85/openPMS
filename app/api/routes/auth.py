@@ -65,6 +65,11 @@ async def post_register(
     body: AuthRegisterRequest,
 ) -> AuthRegisterPublicResponse:
     settings = get_settings()
+    if not settings.allow_public_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled. Use /auth/invite.",
+        )
     factory = request.app.state.async_session_factory
     tenant_id = uuid4()
     try:
@@ -208,6 +213,7 @@ async def post_change_password(
         "You cannot deactivate yourself. The tenant must always have at least one active owner."
     ),
 )
+@limiter.limit("120/minute")
 async def patch_user_route(
     _: InviteManagerDep,
     request: Request,
