@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from uuid import UUID
 
+import httpx
+import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
@@ -12,8 +15,15 @@ from sqlalchemy.orm import selectinload
 from app.core import webhook_events as ev
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
+from app.models.bookings.guest import Guest
+from app.core.webhook_url_validation import WebhookUrlUnsafeError, assert_webhook_target_ips_safe_for_url
+from app.models.core.property import Property
+from app.models.integrations.country_pack_extension import CountryPackExtension
+from app.models.integrations.property_extension import PropertyExtension
 from app.models.rates.availability_ledger import AvailabilityLedger
 from app.services.webhook_delivery_engine import dispatch_webhook_event
+
+_log = structlog.get_logger()
 
 
 async def _set_tenant(session: AsyncSession, tenant_id: UUID) -> None:
@@ -62,6 +72,85 @@ def booking_quick_snapshot(booking: Booking) -> dict[str, object | None]:
         "check_out": co.isoformat() if co else None,
         "room_id": str(rid) if rid else None,
     }
+
+
+async def _post_country_pack_extension_checkin_webhooks(
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: UUID,
+    booking_id: UUID,
+    guest_payload: dict[str, object | None],
+) -> None:
+    """POST guest.checked_in payload to active integrator URLs (country_pack_extensions)."""
+    targets: list[tuple[str, str, dict[str, object] | None]] = []
+    async with factory() as session:
+        async with session.begin():
+            await _set_tenant(session, tenant_id)
+            booking = await load_booking_for_webhook(session, tenant_id, booking_id)
+            if booking is None:
+                return
+            res = await session.execute(
+                select(
+                    CountryPackExtension.webhook_url,
+                    CountryPackExtension.code,
+                    PropertyExtension.config,
+                )
+                .join(
+                    PropertyExtension,
+                    (PropertyExtension.extension_id == CountryPackExtension.id)
+                    & (PropertyExtension.tenant_id == CountryPackExtension.tenant_id),
+                )
+                .where(
+                    PropertyExtension.tenant_id == tenant_id,
+                    PropertyExtension.property_id == booking.property_id,
+                    PropertyExtension.is_active.is_(True),
+                    CountryPackExtension.is_active.is_(True),
+                ),
+            )
+            targets = [(str(u), str(c), cfg) for u, c, cfg in res.all()]
+
+    for url, ext_code, cfg in targets:
+        body: dict[str, object] = {
+            "event": ev.GUEST_CHECKED_IN,
+            "extension_code": ext_code,
+            "data": dict(guest_payload),
+        }
+        if isinstance(cfg, dict):
+            body["property_extension_config"] = cfg
+        try:
+            await asyncio.to_thread(assert_webhook_target_ips_safe_for_url, url)
+        except WebhookUrlUnsafeError:
+            _log.warning(
+                "country_pack_extension_webhook_blocked",
+                url=url,
+                extension_code=ext_code,
+            )
+            continue
+        except OSError as exc:
+            _log.warning(
+                "country_pack_extension_webhook_dns_failed",
+                url=url,
+                error=str(exc),
+            )
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    url,
+                    json=body,
+                    headers={"X-OpenPMS-Event": ev.GUEST_CHECKED_IN},
+                )
+                if r.status_code >= 400:
+                    _log.warning(
+                        "country_pack_extension_webhook_http_error",
+                        url=url,
+                        status_code=r.status_code,
+                    )
+        except httpx.HTTPError as exc:
+            _log.warning(
+                "country_pack_extension_webhook_failed",
+                url=url,
+                error=str(exc),
+            )
 
 
 async def load_booking_for_webhook(
@@ -199,15 +288,61 @@ async def run_booking_patch_webhooks(
         )
 
     if a_s == "checked_in" and bs != "checked_in":
+        guest_payload: dict[str, object | None] = {
+            "booking_id": str(booking_id),
+            "guest_id": str(after.get("guest_id", "")),
+            "room_id": str(after.get("room_id") or ""),
+        }
+        async with factory() as session:
+            async with session.begin():
+                await _set_tenant(session, tenant_id)
+                booking = await load_booking_for_webhook(
+                    session,
+                    tenant_id,
+                    booking_id,
+                )
+                if booking is not None:
+                    guest_payload["property_id"] = str(booking.property_id)
+                    guest = await session.scalar(
+                        select(Guest).where(
+                            Guest.tenant_id == tenant_id,
+                            Guest.id == booking.guest_id,
+                        ),
+                    )
+                    prop = await session.scalar(
+                        select(Property).where(
+                            Property.tenant_id == tenant_id,
+                            Property.id == booking.property_id,
+                        ),
+                    )
+                    if guest is not None:
+                        guest_payload["first_name"] = guest.first_name
+                        guest_payload["last_name"] = guest.last_name
+                        guest_payload["nationality"] = guest.nationality
+                        guest_payload["passport_data"] = guest.passport_data
+                        guest_payload["passport_number"] = None
+                        guest_payload["date_of_birth"] = (
+                            guest.date_of_birth.isoformat()
+                            if guest.date_of_birth
+                            else None
+                        )
+                        guest_payload["check_in_date"] = after.get("check_in")
+                        guest_payload["room_number"] = None
+                    if prop is not None:
+                        guest_payload["property_address"] = prop.name
+                        guest_payload["property_registration_number"] = None
+
         await dispatch_webhook_event(
             factory,
             tenant_id,
             ev.GUEST_CHECKED_IN,
-            {
-                "booking_id": str(booking_id),
-                "guest_id": str(after.get("guest_id", "")),
-                "room_id": str(after.get("room_id") or ""),
-            },
+            guest_payload,
+        )
+        await _post_country_pack_extension_checkin_webhooks(
+            factory,
+            tenant_id,
+            booking_id,
+            guest_payload,
         )
 
     if a_s == "checked_out" and bs != "checked_out":

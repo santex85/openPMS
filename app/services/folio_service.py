@@ -3,7 +3,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bookings.booking import Booking
@@ -11,6 +11,8 @@ from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
 from app.services.audit_service import record_audit
 from app.schemas.folio import CHARGE_CATEGORIES, FolioPostRequest
+
+COUNTRY_PACK_TAX_PREFIX = "[country-pack-tax]"
 
 
 class FolioError(Exception):
@@ -261,3 +263,63 @@ async def reverse_folio_transaction(
         new_values={"amount": str(rev.amount)},
     )
     return rev
+
+
+async def replace_country_pack_tax_charges(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+    property_id: UUID,
+    base_room_charge: Decimal,
+) -> None:
+    """
+    Remove prior auto-generated country-pack tax lines and post new ones from the
+    property's pack. No-op (after cleanup) when property has no country_pack_code.
+    """
+    from app.models.core.property import Property
+
+    from app.services.tax_service import calculate_taxes
+
+    await _require_booking(session, tenant_id, booking_id)
+
+    await session.execute(
+        delete(FolioTransaction).where(
+            FolioTransaction.tenant_id == tenant_id,
+            FolioTransaction.booking_id == booking_id,
+            FolioTransaction.transaction_type == "Charge",
+            FolioTransaction.category == "tax",
+            FolioTransaction.description.like(f"{COUNTRY_PACK_TAX_PREFIX}%"),
+        ),
+    )
+    await session.flush()
+
+    prop = await session.scalar(
+        select(Property).where(
+            Property.tenant_id == tenant_id,
+            Property.id == property_id,
+        ),
+    )
+    if prop is None or not prop.country_pack_code:
+        return
+
+    calc = await calculate_taxes(
+        session,
+        tenant_id,
+        prop.country_pack_code,
+        base_room_charge,
+        "room_charge",
+    )
+    for line in calc.lines:
+        session.add(
+            FolioTransaction(
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                transaction_type="Charge",
+                amount=line.amount.quantize(Decimal("0.01")),
+                payment_method=None,
+                description=f"{COUNTRY_PACK_TAX_PREFIX} {line.code}: {line.name}",
+                created_by=None,
+                category="tax",
+            ),
+        )
+    await session.flush()

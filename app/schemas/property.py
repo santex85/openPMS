@@ -17,6 +17,11 @@ class PropertyCreate(BaseModel):
     currency: str = Field(..., min_length=3, max_length=3)
     checkin_time: time
     checkout_time: time
+    country_pack_code: str | None = Field(
+        None,
+        max_length=32,
+        description="Optional FK to country_packs.code (apply builtin/custom preset).",
+    )
 
     @field_validator("currency")
     @classmethod
@@ -45,6 +50,7 @@ class PropertyPatch(BaseModel):
     currency: str | None = Field(None, min_length=3, max_length=3)
     checkin_time: time | None = None
     checkout_time: time | None = None
+    country_pack_code: str | None = Field(None, max_length=32)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +85,7 @@ class PropertyRead(BaseModel):
     id: UUID
     tenant_id: UUID
     name: str
+    country_pack_code: str | None = None
     timezone: str
     currency: str
     checkin_time: time

@@ -14,9 +14,13 @@ async def create_property(
     tenant_id: UUID,
     data: PropertyCreate,
 ) -> Property:
+    pack_code = (
+        data.country_pack_code.strip() if data.country_pack_code else None
+    )
     prop = Property(
         tenant_id=tenant_id,
         name=data.name.strip(),
+        country_pack_code=pack_code,
         timezone=data.timezone,
         currency=data.currency,
         checkin_time=data.checkin_time,
@@ -71,5 +75,8 @@ async def update_property(
         prop.checkin_time = patch["checkin_time"]
     if "checkout_time" in patch:
         prop.checkout_time = patch["checkout_time"]
+    if "country_pack_code" in patch:
+        c = patch["country_pack_code"]
+        prop.country_pack_code = c.strip() if isinstance(c, str) and c.strip() else None
     await session.flush()
     return prop

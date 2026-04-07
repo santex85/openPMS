@@ -32,7 +32,13 @@ from app.services.availability_lock import (
     increment_booked_rooms,
     lock_and_validate_availability,
 )
-from app.services.folio_service import compute_folio_balance
+from app.services.extension_service import (
+    validate_extension_required_fields_for_checkin,
+)
+from app.services.folio_service import (
+    compute_folio_balance,
+    replace_country_pack_tax_charges,
+)
 from app.services.pricing_service import MissingRatesError, sum_rates_for_stay
 from app.domain.booking_status import (
     BookingStatusTransitionError,
@@ -313,6 +319,13 @@ async def create_booking(
         ),
     )
     await session.flush()
+    await replace_country_pack_tax_charges(
+        session,
+        tenant_id,
+        booking.id,
+        body.property_id,
+        total,
+    )
 
     return BookingCreateResponse(
         booking_id=booking.id,
@@ -729,6 +742,13 @@ async def patch_booking(
                 total,
             )
             await session.flush()
+            await replace_country_pack_tax_charges(
+                session,
+                tenant_id,
+                booking.id,
+                booking.property_id,
+                total,
+            )
 
     if "room_id" in data:
         await assign_booking_room(
@@ -744,6 +764,28 @@ async def patch_booking(
             validate_status_transition(booking.status, new_s)
         except BookingStatusTransitionError as exc:
             raise PatchBookingError(exc.message, status_code=409) from exc
+        if new_s == "checked_in" and normalize_booking_status(
+            prev_booking_status,
+        ) != "checked_in":
+            guest_row = await session.scalar(
+                select(Guest).where(
+                    Guest.tenant_id == tenant_id,
+                    Guest.id == booking.guest_id,
+                ),
+            )
+            if guest_row is None:
+                raise PatchBookingError("guest not found", status_code=404)
+            ext_msgs = await validate_extension_required_fields_for_checkin(
+                session,
+                tenant_id,
+                booking.property_id,
+                guest_row,
+            )
+            if ext_msgs:
+                raise PatchBookingError(
+                    "; ".join(ext_msgs),
+                    status_code=400,
+                )
         if (
             new_s == "no_show"
             and normalize_booking_status(prev_booking_status) == "confirmed"

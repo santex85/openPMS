@@ -8,6 +8,7 @@ from app.models.bookings import (  # noqa: F401
     Guest,
 )
 from app.models.core import (  # noqa: F401
+    CountryPack,
     Property,
     Room,
     RoomHousekeepingEvent,
@@ -15,6 +16,8 @@ from app.models.core import (  # noqa: F401
     Tenant,
 )
 from app.models.integrations import (  # noqa: F401
+    CountryPackExtension,
+    PropertyExtension,
     WebhookDeliveryLog,
     WebhookPendingDelivery,
     WebhookSubscription,

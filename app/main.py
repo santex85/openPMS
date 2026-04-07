@@ -26,6 +26,7 @@ from app.api.routes import (
     audit_log,
     auth,
     bookings,
+    country_packs,
     dashboard,
     guests,
     housekeeping,
@@ -241,6 +242,11 @@ def create_app() -> FastAPI:
         properties.router,
         prefix="/properties",
         tags=["properties"],
+    )
+    application.include_router(
+        country_packs.router,
+        prefix="/country-packs",
+        tags=["country-packs"],
     )
     application.include_router(
         room_types.router,
