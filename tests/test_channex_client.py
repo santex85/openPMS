@@ -38,6 +38,132 @@ async def test_get_properties_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_properties_id_from_attributes_only() -> None:
+    """Some payloads omit resource-level id; use attributes.id."""
+    client = ChannexClient("k", "production")
+    mock_r = _resp(
+        200,
+        {"data": [{"attributes": {"id": "p2", "title": "Bay"}}]},
+    )
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        props = await client.get_properties()
+    assert len(props) == 1
+    assert props[0].id == "p2"
+    assert props[0].title == "Bay"
+
+
+@pytest.mark.asyncio
+async def test_get_properties_data_null_returns_empty() -> None:
+    client = ChannexClient("k", "production")
+    mock_r = _resp(200, {"data": None})
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        props = await client.get_properties()
+    assert props == []
+
+
+@pytest.mark.asyncio
+async def test_create_property_success() -> None:
+    client = ChannexClient("k", "production")
+    mock_r = MagicMock(spec=httpx.Response)
+    mock_r.status_code = 201
+    mock_r.text = ""
+    mock_r.json = MagicMock(
+        return_value={
+            "data": {
+                "type": "property",
+                "id": "new-id",
+                "attributes": {
+                    "id": "new-id",
+                    "title": "From OpenPMS",
+                    "currency": "EUR",
+                },
+            },
+        },
+    )
+    mock_r.content = b"{}"
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        prop = await client.create_property("From OpenPMS", "eur", "Europe/Berlin")
+    assert prop.id == "new-id"
+    assert prop.title == "From OpenPMS"
+    m.assert_awaited_once()
+    call_kw = m.await_args.kwargs
+    assert call_kw["json_body"]["property"]["title"] == "From OpenPMS"
+    assert call_kw["json_body"]["property"]["currency"] == "EUR"
+    assert call_kw["json_body"]["property"]["timezone"] == "Europe/Berlin"
+    assert call_kw["json_body"]["property"]["property_type"] == "hotel"
+
+
+@pytest.mark.asyncio
+async def test_create_room_type_success() -> None:
+    client = ChannexClient("k", "production")
+    mock_r = MagicMock(spec=httpx.Response)
+    mock_r.status_code = 201
+    mock_r.text = ""
+    mock_r.json = MagicMock(
+        return_value={
+            "data": {
+                "type": "room_type",
+                "id": "rt-1",
+                "attributes": {"id": "rt-1", "title": "Deluxe"},
+            },
+        },
+    )
+    mock_r.content = b"{}"
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        row = await client.create_room_type(
+            property_id="p1",
+            title="Deluxe",
+            count_of_rooms=2,
+            occ_adults=2,
+            occ_children=0,
+            occ_infants=0,
+            default_occupancy=2,
+        )
+    assert row.id == "rt-1"
+    assert row.title == "Deluxe"
+    call_kw = m.await_args.kwargs
+    assert call_kw["json_body"]["room_type"]["property_id"] == "p1"
+    assert call_kw["json_body"]["room_type"]["count_of_rooms"] == 2
+
+
+@pytest.mark.asyncio
+async def test_create_rate_plan_success() -> None:
+    client = ChannexClient("k", "sandbox")
+    mock_r = MagicMock(spec=httpx.Response)
+    mock_r.status_code = 201
+    mock_r.text = ""
+    mock_r.json = MagicMock(
+        return_value={
+            "data": {
+                "type": "rate_plan",
+                "id": "rp-9",
+                "attributes": {"id": "rp-9", "title": "BAR / Deluxe"},
+            },
+        },
+    )
+    mock_r.content = b"{}"
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        row = await client.create_rate_plan(
+            property_id="p1",
+            room_type_id="rt-1",
+            title="BAR / Deluxe",
+            currency="THB",
+            primary_occupancy=2,
+        )
+    assert row.id == "rp-9"
+    call_kw = m.await_args.kwargs
+    rp = call_kw["json_body"]["rate_plan"]
+    assert rp["room_type_id"] == "rt-1"
+    assert rp["options"] == [{"occupancy": 2, "is_primary": True, "rate": 0}]
+    assert rp["currency"] == "THB"
+
+
+@pytest.mark.asyncio
 async def test_get_properties_401_raises() -> None:
     client = ChannexClient("k", "production")
     mock_r = _resp(401, text="Unauthorized")

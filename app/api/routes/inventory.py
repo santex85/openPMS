@@ -14,8 +14,11 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.models.core.room_type import RoomType
+from app.models.rates.availability_ledger import AvailabilityLedger
 from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
 from app.core.rate_limit import limiter
 from app.schemas.availability_override import (
@@ -32,6 +35,10 @@ from app.services.availability_override_service import (
     apply_blocked_rooms_override,
 )
 from app.services.audit_service import record_audit
+from app.services.channex_ari_triggers import (
+    schedule_push_channex_availability,
+    schedule_push_channex_stop_sell,
+)
 from app.services.webhook_runner import run_availability_after_override
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -197,4 +204,37 @@ async def put_availability_overrides(
             room_type_id,
             dates,
         )
+        prop_id = await session.scalar(
+            select(RoomType.property_id).where(
+                RoomType.tenant_id == tenant_id,
+                RoomType.id == room_type_id,
+            ),
+        )
+        if prop_id is not None:
+            schedule_push_channex_availability(
+                background_tasks,
+                tenant_id,
+                prop_id,
+                room_type_id,
+                dates,
+            )
+            stmt_led = select(AvailabilityLedger).where(
+                AvailabilityLedger.tenant_id == tenant_id,
+                AvailabilityLedger.room_type_id == room_type_id,
+                AvailabilityLedger.date.in_(dates),
+            )
+            ledger_rows = list((await session.execute(stmt_led)).scalars().all())
+            full_stop_dates = [
+                r.date
+                for r in ledger_rows
+                if r.total_rooms > 0 and r.blocked_rooms == r.total_rooms
+            ]
+            if full_stop_dates:
+                schedule_push_channex_stop_sell(
+                    background_tasks,
+                    tenant_id,
+                    prop_id,
+                    room_type_id,
+                    full_stop_dates,
+                )
     return AvailabilityOverridePutResponse(dates_updated=n)

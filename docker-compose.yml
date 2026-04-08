@@ -68,7 +68,9 @@ services:
 
   worker:
     build: .
-    command: celery -A app.worker:celery_app worker --loglevel=info --concurrency=2
+    command: >
+      celery -A app.worker:celery_app worker -Q celery,channex_ari
+      --loglevel=info --concurrency=2
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD:-openpms}@db:5432/${POSTGRES_DB:-openpms}
       JWT_SECRET: ${JWT_SECRET}

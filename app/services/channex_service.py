@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+import structlog
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from app.models.core.room_type import RoomType
 from app.models.rates.rate_plan import RatePlan
 from app.schemas.channex import (
     ChannexPropertyLinkRead,
+    ChannexProvisionRead,
     ChannexRatePlanRead,
     ChannexRoomTypeMapRead,
     ChannexRoomTypeRead,
@@ -26,6 +28,8 @@ from app.schemas.channex import (
     RateMappingItem,
     RoomMappingItem,
 )
+from app.services import property_service
+from app.services import rate_plan_service, room_type_service
 
 
 class ChannexServiceError(Exception):
@@ -54,6 +58,11 @@ def _channex_http_to_service(exc: ChannexApiError) -> ChannexServiceError:
         )
     if code == 404:
         return ChannexServiceError("Channex resource not found", status_code=404)
+    if code == 422:
+        detail = "Channex rejected the request (validation error)"
+        if exc.body and len(exc.body) < 800:
+            detail = exc.body
+        return ChannexServiceError(detail, status_code=422)
     return ChannexServiceError(
         exc.args[0] if exc.args else "Channex API error",
         status_code=502,
@@ -65,6 +74,36 @@ async def validate_key(api_key: str, env: str) -> list[ChannexProperty]:
     client = ChannexClient(api_key.strip(), env=env_n)
     try:
         return await client.get_properties()
+    except ChannexApiError as exc:
+        raise _channex_http_to_service(exc) from exc
+
+
+async def create_channex_property_from_openpms(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+    api_key: str,
+    env: str,
+) -> ChannexProperty:
+    """Create a property in Channex using the OpenPMS hotel name, currency, timezone."""
+    env_n = _normalize_env(env)
+    existing = await _get_link(session, tenant_id, property_id)
+    if existing is not None:
+        raise ChannexServiceError(
+            "Channex is already connected for this property",
+            status_code=409,
+        )
+    prop = await property_service.get_property(session, tenant_id, property_id)
+    if prop is None:
+        raise ChannexServiceError("Property not found", status_code=404)
+
+    client = ChannexClient(api_key.strip(), env=env_n)
+    try:
+        return await client.create_property(
+            prop.name,
+            prop.currency,
+            prop.timezone,
+        )
     except ChannexApiError as exc:
         raise _channex_http_to_service(exc) from exc
 
@@ -211,6 +250,135 @@ async def get_channex_rates(
     return [ChannexRatePlanRead(id=r.id, title=r.title) for r in items]
 
 
+async def provision_channex_from_openpms(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> ChannexProvisionRead:
+    """Create missing Channex room types and rate plans from OpenPMS (idempotent by title)."""
+    link = await _get_link(session, tenant_id, property_id)
+    if link is None:
+        raise ChannexServiceError(
+            "Channex is not connected for this property",
+            status_code=404,
+        )
+
+    prop = await property_service.get_property(session, tenant_id, property_id)
+    if prop is None:
+        raise ChannexServiceError("Property not found", status_code=404)
+
+    room_types_local = await room_type_service.list_room_types(
+        session,
+        tenant_id,
+        property_id=property_id,
+    )
+    if not room_types_local:
+        raise ChannexServiceError(
+            "No room categories in OpenPMS for this property; add room types first",
+            status_code=422,
+        )
+
+    client = _client_for_link(link)
+    cx_pid = link.channex_property_id
+
+    try:
+        existing_cx_rt = await client.get_room_types(cx_pid)
+    except ChannexApiError as exc:
+        raise _channex_http_to_service(exc) from exc
+
+    cx_by_title: dict[str, str] = {}
+    for r in existing_cx_rt:
+        t = (r.title or "").strip()
+        if t and r.id:
+            cx_by_title[t] = r.id
+
+    om_rt_to_cx: dict[UUID, str] = {}
+    created_rt = 0
+    skipped_rt = 0
+
+    for rt in room_types_local:
+        key = rt.name.strip()
+        if key in cx_by_title:
+            om_rt_to_cx[rt.id] = cx_by_title[key]
+            skipped_rt += 1
+            continue
+
+        count = await room_type_service.count_rooms_for_room_type(
+            session,
+            tenant_id,
+            rt.id,
+        )
+        count_of_rooms = max(1, count)
+        occ_adults = max(1, rt.max_occupancy)
+        default_occ = max(1, min(rt.base_occupancy, occ_adults))
+
+        try:
+            cx_r = await client.create_room_type(
+                property_id=cx_pid,
+                title=rt.name,
+                count_of_rooms=count_of_rooms,
+                occ_adults=occ_adults,
+                occ_children=0,
+                occ_infants=0,
+                default_occupancy=default_occ,
+            )
+        except ChannexApiError as exc:
+            raise _channex_http_to_service(exc) from exc
+
+        om_rt_to_cx[rt.id] = cx_r.id
+        cx_by_title[key] = cx_r.id
+        created_rt += 1
+
+    rate_plans_local = await rate_plan_service.list_rate_plans(
+        session,
+        tenant_id,
+        property_id=property_id,
+    )
+
+    try:
+        existing_cx_rp = await client.get_rate_plans(cx_pid)
+    except ChannexApiError as exc:
+        raise _channex_http_to_service(exc) from exc
+
+    rp_titles_existing = {
+        (r.title or "").strip() for r in existing_cx_rp if (r.title or "").strip()
+    }
+
+    created_rp = 0
+    skipped_rp = 0
+
+    if rate_plans_local:
+        currency = (prop.currency or "USD").strip().upper()
+        for rp in rate_plans_local:
+            for rt in room_types_local:
+                cx_rt_id = om_rt_to_cx.get(rt.id)
+                if not cx_rt_id:
+                    continue
+                title = f"{rp.name.strip()} / {rt.name.strip()}"[:255]
+                if title in rp_titles_existing:
+                    skipped_rp += 1
+                    continue
+                try:
+                    await client.create_rate_plan(
+                        property_id=cx_pid,
+                        room_type_id=cx_rt_id,
+                        title=title,
+                        currency=currency,
+                        primary_occupancy=max(1, rt.max_occupancy),
+                    )
+                except ChannexApiError as exc:
+                    raise _channex_http_to_service(exc) from exc
+                rp_titles_existing.add(title)
+                created_rp += 1
+
+    return ChannexProvisionRead(
+        room_types_created=created_rt,
+        room_types_skipped=skipped_rt,
+        rate_plans_created=created_rp,
+        rate_plans_skipped=skipped_rp,
+    )
+
+
 async def _assert_room_types_belong_to_property(
     session: AsyncSession,
     tenant_id: UUID,
@@ -334,8 +502,12 @@ async def save_rate_mappings(
 
     room_type_map_ids = [m.room_type_map_id for m in mappings]
     rate_plan_ids = [m.rate_plan_id for m in mappings]
-    if len(rate_plan_ids) != len(set(rate_plan_ids)):
-        raise ChannexServiceError("Duplicate OpenPMS rate plan in mappings", status_code=422)
+    pair_keys = [(m.room_type_map_id, m.rate_plan_id) for m in mappings]
+    if len(pair_keys) != len(set(pair_keys)):
+        raise ChannexServiceError(
+            "Duplicate room category and rate plan combination in mappings",
+            status_code=422,
+        )
 
     stmt_maps = select(ChannexRoomTypeMap).where(
         ChannexRoomTypeMap.tenant_id == tenant_id,
@@ -390,10 +562,51 @@ async def activate(
     if link is None:
         raise ChannexServiceError("Channex is not connected for this property", status_code=404)
     now = datetime.now(timezone.utc)
+    settings = get_settings()
+    webhook_url = (settings.channex_webhook_url or "").strip()
+    existing_wid = (link.channex_webhook_id or "").strip()
+    if webhook_url and not existing_wid:
+        client = _client_for_link(link)
+        try:
+            resp = await client.create_webhook(webhook_url, ["booking", "ari"])
+        except ChannexApiError as exc:
+            raise _channex_http_to_service(exc) from exc
+        wid = ChannexClient.extract_created_resource_id(resp)
+        if not wid:
+            raise ChannexServiceError(
+                "Channex webhook response missing id",
+                status_code=502,
+            )
+        link.channex_webhook_id = wid
+    elif not webhook_url:
+        structlog.get_logger().warning(
+            "channex_activate_skipping_webhook_no_channex_webhook_url",
+        )
+
     link.status = "active"
     if link.connected_at is None:
         link.connected_at = now
+    link.error_message = None
     await session.flush()
+    return link
+
+
+async def require_active_channex_link(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> ChannexPropertyLink:
+    link = await _get_link(session, tenant_id, property_id)
+    if link is None:
+        raise ChannexServiceError(
+            "Channex is not connected for this property",
+            status_code=404,
+        )
+    if link.status != "active":
+        raise ChannexServiceError(
+            "Channex integration must be active to sync",
+            status_code=409,
+        )
     return link
 
 
@@ -405,6 +618,18 @@ async def disconnect(
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
         return
+
+    wid = (link.channex_webhook_id or "").strip()
+    if wid:
+        try:
+            client = _client_for_link(link)
+            await client.delete_webhook(wid)
+        except ChannexApiError as exc:
+            structlog.get_logger().warning(
+                "channex_delete_webhook_failed",
+                status=getattr(exc, "status_code", None),
+                detail=str(exc)[:500],
+            )
 
     subq = select(ChannexRoomTypeMap.id).where(
         ChannexRoomTypeMap.property_link_id == link.id,

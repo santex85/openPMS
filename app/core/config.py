@@ -100,6 +100,26 @@ class Settings(BaseSettings):
             "When false, POST /auth/register returns 403; use invite flow (/auth/invite) instead."
         ),
     )
+    channex_webhook_url: str = Field(
+        default="",
+        description=(
+            "Public HTTPS URL for POST /webhooks/channex (registered in Channex on activate). "
+            "If empty, activate skips webhook registration (ARI sync still runs)."
+        ),
+    )
+    channex_webhook_secret: str = Field(
+        default="",
+        description=(
+            "Optional HMAC-SHA256 secret for verifying inbound Channex webhooks "
+            "(hex digest of raw body vs X-Channex-Signature header, if both set)."
+        ),
+    )
+    channex_webhook_verify_channex_ips: bool = Field(
+        default=False,
+        description=(
+            "When true and channex_webhook_secret is empty, require client IP in 34.76.12.0/24."
+        ),
+    )
     celery_broker_url: str = Field(
         default="redis://localhost:6379/0",
         description="Celery broker URL (Redis).",

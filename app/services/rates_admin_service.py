@@ -119,6 +119,9 @@ async def bulk_upsert_rates(
                 "rate_plan_id": seg.rate_plan_id,
                 "date": d,
                 "price": seg.price,
+                "stop_sell": seg.stop_sell,
+                "min_stay_arrival": seg.min_stay_arrival,
+                "max_stay": seg.max_stay,
             }
 
     rows = list(by_key.values())
@@ -128,7 +131,12 @@ async def bulk_upsert_rates(
     stmt = insert(Rate).values(rows)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_rates_tenant_room_type_plan_date",
-        set_={"price": stmt.excluded.price},
+        set_={
+            "price": stmt.excluded.price,
+            "stop_sell": stmt.excluded.stop_sell,
+            "min_stay_arrival": stmt.excluded.min_stay_arrival,
+            "max_stay": stmt.excluded.max_stay,
+        },
     )
     await session.execute(stmt)
     updates = [

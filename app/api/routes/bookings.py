@@ -66,6 +66,8 @@ from app.services.folio_service import (
 from app.services.room_list_service import property_belongs_to_tenant
 from app.services.pricing_service import MissingRatesError
 from app.services.audit_service import record_audit
+from app.services.channex_ari_triggers import schedule_push_channex_availability
+from app.services.stay_dates import iter_stay_nights
 from app.services.webhook_runner import (
     booking_quick_snapshot,
     emit_availability_for_dates,
@@ -466,6 +468,13 @@ async def patch_booking_by_id(
                 rt_id,
                 all_dates,
             )
+            schedule_push_channex_availability(
+                background_tasks,
+                tenant_id,
+                b_after.property_id,
+                rt_id,
+                all_dates,
+            )
 
     await record_audit(
         session,
@@ -539,5 +548,13 @@ async def post_booking(
         factory,
         tenant_id,
         out.booking_id,
+    )
+    stay_nights = iter_stay_nights(body.check_in, body.check_out)
+    schedule_push_channex_availability(
+        background_tasks,
+        tenant_id,
+        body.property_id,
+        body.room_type_id,
+        stay_nights,
     )
     return out

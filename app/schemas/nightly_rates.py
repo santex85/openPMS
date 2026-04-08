@@ -16,6 +16,9 @@ class RateRead(BaseModel):
     rate_plan_id: UUID
     date: date
     price: Decimal
+    stop_sell: bool = False
+    min_stay_arrival: int | None = None
+    max_stay: int | None = None
 
 
 class BulkRateSegment(BaseModel):
@@ -24,6 +27,9 @@ class BulkRateSegment(BaseModel):
     start_date: date
     end_date: date
     price: Decimal = Field(..., ge=Decimal("0"))
+    stop_sell: bool = False
+    min_stay_arrival: int | None = Field(default=None, ge=1)
+    max_stay: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_range(self) -> "BulkRateSegment":
@@ -32,6 +38,12 @@ class BulkRateSegment(BaseModel):
         span = (self.end_date - self.start_date).days + 1
         if span > 366:
             raise ValueError("each segment may cover at most 366 nights")
+        if (
+            self.min_stay_arrival is not None
+            and self.max_stay is not None
+            and self.max_stay < self.min_stay_arrival
+        ):
+            raise ValueError("max_stay must be >= min_stay_arrival when both are set")
         return self
 
     model_config = ConfigDict(extra="forbid")

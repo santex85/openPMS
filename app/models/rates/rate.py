@@ -5,8 +5,10 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     Date,
     ForeignKeyConstraint,
+    Integer,
     Numeric,
     UniqueConstraint,
 )
@@ -48,3 +50,6 @@ class Rate(Base):
     rate_plan_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    stop_sell: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    min_stay_arrival: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_stay: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_jwt_user, require_roles, require_scopes
 from app.core.api_scopes import CHANNEX_READ, CHANNEX_WRITE
@@ -11,9 +11,11 @@ from app.schemas.channex import (
     ChannexConnectRequest,
     ChannexPropertyLinkRead,
     ChannexPropertyRead,
+    ChannexProvisionRead,
     ChannexRatePlanRead,
     ChannexRoomTypeRead,
     ChannexStatusRead,
+    ChannexSyncQueuedResponse,
     ChannexValidateKeyRequest,
     RateMappingRequest,
     RoomMappingRequest,
@@ -42,6 +44,12 @@ def _http_from_service(exc: ChannexServiceError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
+def _enqueue_channex_ari_sync_job(tenant_id: UUID, property_id: UUID) -> None:
+    from app.tasks.channex_ari_sync import channex_full_ari_sync
+
+    channex_full_ari_sync.delay(str(tenant_id), str(property_id))
+
+
 @router.post(
     "/validate-key",
     response_model=list[ChannexPropertyRead],
@@ -56,6 +64,75 @@ async def validate_channex_key(
     except ChannexServiceError as exc:
         raise _http_from_service(exc) from exc
     return [ChannexPropertyRead(id=p.id, title=p.title) for p in props]
+
+
+@router.post(
+    "/create-property",
+    response_model=ChannexPropertyRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a Channex property from the current OpenPMS hotel",
+)
+async def create_channex_property_endpoint(
+    _: ChannexWriteDep,
+    body: ChannexValidateKeyRequest,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
+) -> ChannexPropertyRead:
+    try:
+        created = await channex_service.create_channex_property_from_openpms(
+            session,
+            tenant_id,
+            property_id,
+            body.api_key,
+            body.env,
+        )
+    except ChannexServiceError as exc:
+        raise _http_from_service(exc) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="channex.create_property",
+        entity_type="property",
+        entity_id=property_id,
+        new_values={"channex_property_id": created.id},
+    )
+    return ChannexPropertyRead(id=created.id, title=created.title)
+
+
+@router.post(
+    "/provision-from-openpms",
+    response_model=ChannexProvisionRead,
+    summary="Create missing Channex room types and rate plans from OpenPMS data",
+)
+async def provision_channex_from_openpms_endpoint(
+    _: ChannexWriteDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
+) -> ChannexProvisionRead:
+    try:
+        result = await channex_service.provision_channex_from_openpms(
+            session,
+            tenant_id,
+            property_id,
+        )
+    except ChannexServiceError as exc:
+        raise _http_from_service(exc) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="channex.provision_from_openpms",
+        entity_type="property",
+        entity_id=property_id,
+        new_values={
+            "room_types_created": result.room_types_created,
+            "room_types_skipped": result.room_types_skipped,
+            "rate_plans_created": result.rate_plans_created,
+            "rate_plans_skipped": result.rate_plans_skipped,
+        },
+    )
+    return result
 
 
 @router.post(
@@ -214,7 +291,10 @@ async def map_channex_rates(
 @router.post(
     "/activate",
     response_model=ChannexPropertyLinkRead,
-    summary="Mark Channex integration active (no initial sync yet)",
+    summary=(
+        "Activate Channex: register webhook (if CHANNEX_WEBHOOK_URL set), "
+        "enqueue full ARI sync (365 days)"
+    ),
 )
 async def activate_channex(
     request: Request,
@@ -222,6 +302,7 @@ async def activate_channex(
     session: SessionDep,
     tenant_id: TenantIdDep,
     property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
+    background_tasks: BackgroundTasks,
 ) -> ChannexPropertyLinkRead:
     _ = request
     try:
@@ -236,7 +317,44 @@ async def activate_channex(
         entity_id=row.id,
         new_values={"status": row.status},
     )
+    background_tasks.add_task(_enqueue_channex_ari_sync_job, tenant_id, property_id)
     return ChannexPropertyLinkRead.model_validate(row)
+
+
+@router.post(
+    "/sync",
+    response_model=ChannexSyncQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Enqueue full ARI sync to Channex (365 days) for an active link",
+)
+async def sync_channex(
+    request: Request,
+    _: ChannexWriteDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
+    background_tasks: BackgroundTasks,
+) -> ChannexSyncQueuedResponse:
+    _ = request
+    try:
+        row = await channex_service.require_active_channex_link(
+            session,
+            tenant_id,
+            property_id,
+        )
+    except ChannexServiceError as exc:
+        raise _http_from_service(exc) from exc
+    _ = row
+    background_tasks.add_task(_enqueue_channex_ari_sync_job, tenant_id, property_id)
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="channex.sync",
+        entity_type="property",
+        entity_id=property_id,
+        new_values={},
+    )
+    return ChannexSyncQueuedResponse()
 
 
 @router.post(

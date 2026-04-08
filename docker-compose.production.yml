@@ -62,7 +62,9 @@ services:
   worker:
     build: .
     restart: unless-stopped
-    command: celery -A app.worker:celery_app worker --loglevel=info --concurrency=2
+    command: >
+      celery -A app.worker:celery_app worker -Q celery,channex_ari
+      --loglevel=info --concurrency=2
     env_file:
       - .env.production
     environment:

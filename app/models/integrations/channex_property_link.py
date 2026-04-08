@@ -42,6 +42,7 @@ class ChannexPropertyLink(Base):
     tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     property_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     channex_property_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    channex_webhook_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     channex_api_key: Mapped[str] = mapped_column(Text, nullable=False)
     channex_env: Mapped[str] = mapped_column(
         String(20),

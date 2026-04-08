@@ -136,6 +136,8 @@ class ChannexClient:
             return [cast(dict[str, Any], x) for x in data if isinstance(x, dict)]
         if isinstance(data, dict) and "data" in data:
             inner = data["data"]
+            if inner is None:
+                return []
             if isinstance(inner, list):
                 return [
                     cast(dict[str, Any], x) for x in inner if isinstance(x, dict)
@@ -151,10 +153,25 @@ class ChannexClient:
         """Support JSON:API-ish { id, attributes: { title: ... } } payloads."""
         attrs = item.get("attributes")
         if isinstance(attrs, dict):
-            base = {"id": str(item.get("id", ""))}
+            top_id = item.get("id")
+            aid = attrs.get("id")
+            resolved = top_id if top_id is not None else aid
+            base = {"id": str(resolved).strip() if resolved is not None else ""}
             out = {**base, **cast(dict[str, Any], attrs)}
             return out
         return item
+
+    @staticmethod
+    def extract_created_resource_id(payload: dict[str, Any]) -> str | None:
+        """Parse id from a typical Channex create response (wrapped or bare)."""
+        raw_list = ChannexClient._unwrap_items(payload)
+        if not raw_list:
+            return None
+        flat = ChannexClient._attributes_obj(raw_list[0])
+        rid = flat.get("id")
+        if rid is None or str(rid).strip() == "":
+            return None
+        return str(rid).strip()
 
     async def get_properties(self) -> list[ChannexProperty]:
         r = await self._request("GET", "properties")
@@ -166,6 +183,145 @@ class ChannexClient:
             if flat.get("id"):
                 items.append(ChannexProperty.model_validate(flat))
         return items
+
+    async def create_property(
+        self,
+        title: str,
+        currency: str,
+        timezone: str | None = None,
+    ) -> ChannexProperty:
+        prop_body: dict[str, Any] = {
+            "title": title.strip(),
+            "currency": currency.strip().upper(),
+            "property_type": "hotel",
+        }
+        if timezone and timezone.strip():
+            prop_body["timezone"] = timezone.strip()
+        r = await self._request(
+            "POST",
+            "properties",
+            json_body={"property": prop_body},
+        )
+        payload = r.json()
+        raw_list = self._unwrap_items(payload)
+        flat: dict[str, Any]
+        if raw_list:
+            flat = self._attributes_obj(raw_list[0])
+        elif isinstance(payload, dict):
+            flat = self._attributes_obj(payload)
+        else:
+            flat = {}
+        if not flat.get("id"):
+            raise ChannexApiError(
+                "Channex create property: missing id in response",
+                status_code=None,
+                body=str(payload)[:500] if payload else None,
+            )
+        return ChannexProperty.model_validate(flat)
+
+    async def create_room_type(
+        self,
+        *,
+        property_id: str,
+        title: str,
+        count_of_rooms: int,
+        occ_adults: int,
+        occ_children: int,
+        occ_infants: int,
+        default_occupancy: int,
+    ) -> ChannexRoomType:
+        body = {
+            "room_type": {
+                "property_id": property_id.strip(),
+                "title": title.strip(),
+                "count_of_rooms": int(count_of_rooms),
+                "occ_adults": int(occ_adults),
+                "occ_children": int(occ_children),
+                "occ_infants": int(occ_infants),
+                "default_occupancy": int(default_occupancy),
+                "facilities": [],
+                "room_kind": "room",
+            },
+        }
+        r = await self._request("POST", "room_types", json_body=body)
+        payload = r.json()
+        raw_list = self._unwrap_items(payload)
+        flat: dict[str, Any]
+        if raw_list:
+            flat = self._attributes_obj(raw_list[0])
+        elif isinstance(payload, dict):
+            flat = self._attributes_obj(payload)
+        else:
+            flat = {}
+        if not flat.get("id"):
+            raise ChannexApiError(
+                "Channex create room type: missing id in response",
+                status_code=None,
+                body=str(payload)[:500] if payload else None,
+            )
+        return ChannexRoomType.model_validate(flat)
+
+    async def create_rate_plan(
+        self,
+        *,
+        property_id: str,
+        room_type_id: str,
+        title: str,
+        currency: str,
+        primary_occupancy: int,
+    ) -> ChannexRatePlan:
+        z7 = [0, 0, 0, 0, 0, 0, 0]
+        f7 = [False, False, False, False, False, False, False]
+        o7 = [1, 1, 1, 1, 1, 1, 1]
+        occ = max(1, int(primary_occupancy))
+        body = {
+            "rate_plan": {
+                "title": title.strip()[:255],
+                "property_id": property_id.strip(),
+                "room_type_id": room_type_id.strip(),
+                "parent_rate_plan_id": None,
+                "children_fee": "0.00",
+                "infant_fee": "0.00",
+                "max_stay": z7,
+                "min_stay_arrival": o7,
+                "min_stay_through": o7,
+                "closed_to_arrival": f7,
+                "closed_to_departure": f7,
+                "stop_sell": f7,
+                "options": [{"occupancy": occ, "is_primary": True, "rate": 0}],
+                "currency": currency.strip().upper(),
+                "sell_mode": "per_room",
+                "rate_mode": "manual",
+                "inherit_rate": False,
+                "inherit_closed_to_arrival": False,
+                "inherit_closed_to_departure": False,
+                "inherit_stop_sell": False,
+                "inherit_min_stay_arrival": False,
+                "inherit_min_stay_through": False,
+                "inherit_max_stay": False,
+                "inherit_max_sell": False,
+                "inherit_max_availability": False,
+                "inherit_availability_offset": False,
+                "auto_rate_settings": None,
+            },
+        }
+        r = await self._request("POST", "rate_plans", json_body=body)
+        payload = r.json()
+        raw_list = self._unwrap_items(payload)
+        flat: dict[str, Any]
+        if raw_list:
+            flat = self._attributes_obj(raw_list[0])
+        elif isinstance(payload, dict):
+            flat = self._attributes_obj(payload)
+        else:
+            flat = {}
+        if not flat.get("id"):
+            raise ChannexApiError(
+                "Channex create rate plan: missing id in response",
+                status_code=None,
+                body=str(payload)[:500] if payload else None,
+            )
+        return ChannexRatePlan.model_validate(flat)
 
     async def get_room_types(self, property_id: str) -> list[ChannexRoomType]:
         r = await self._request(
@@ -196,6 +352,16 @@ class ChannexClient:
             if flat.get("id"):
                 items.append(ChannexRatePlan.model_validate(flat))
         return items
+
+    async def push_availability(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+        """POST /availability — room-type level inventory."""
+        r = await self._request("POST", "availability", json_body={"values": values})
+        return cast(dict[str, Any], r.json())
+
+    async def push_restrictions(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+        """POST /restrictions — rate and restrictions per rate plan."""
+        r = await self._request("POST", "restrictions", json_body={"values": values})
+        return cast(dict[str, Any], r.json())
 
     async def push_ari(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         r = await self._request("POST", "ari_upload", json_body={"values": values})

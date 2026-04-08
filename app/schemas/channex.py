@@ -34,12 +34,19 @@ class ChannexPropertyLinkRead(BaseModel):
     id: UUID
     property_id: UUID
     channex_property_id: str
+    channex_webhook_id: str | None = None
     channex_env: str
     status: str
     connected_at: datetime | None = None
     last_sync_at: datetime | None = None
     error_message: str | None = None
     created_at: datetime
+
+
+class ChannexSyncQueuedResponse(BaseModel):
+    """Return body for POST .../channex/sync when ARI job is enqueued."""
+
+    detail: str = "Sync queued"
 
 
 class ChannexRoomTypeMapRead(BaseModel):
@@ -71,6 +78,15 @@ class ChannexRatePlanRead(BaseModel):
 
     id: str
     title: str | None = None
+
+
+class ChannexProvisionRead(BaseModel):
+    """Counts after creating missing Channex room types and rate plans from OpenPMS."""
+
+    room_types_created: int = 0
+    room_types_skipped: int = 0
+    rate_plans_created: int = 0
+    rate_plans_skipped: int = 0
 
 
 class RoomMappingItem(BaseModel):

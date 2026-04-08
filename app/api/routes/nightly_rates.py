@@ -1,12 +1,15 @@
 """Nightly rates (prices) API."""
 
+from collections import defaultdict
 from datetime import date
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.models.core.room_type import RoomType
 from app.core.api_scopes import RATES_READ, RATES_WRITE
 from app.core.rate_limit import limiter
 from app.schemas.nightly_rates import (
@@ -15,6 +18,7 @@ from app.schemas.nightly_rates import (
     RateRead,
 )
 from app.services.audit_service import record_audit
+from app.services.channex_ari_triggers import schedule_push_channex_rates
 from app.services.rates_admin_service import (
     RatesServiceError,
     bulk_upsert_rates,
@@ -92,4 +96,23 @@ async def put_rates_bulk(
             tenant_id,
             updates,
         )
+        prop_id = await session.scalar(
+            select(RoomType.property_id).where(
+                RoomType.tenant_id == tenant_id,
+                RoomType.id == body.segments[0].room_type_id,
+            ),
+        )
+        if prop_id is not None:
+            by_pair: dict[tuple[UUID, UUID], list[date]] = defaultdict(list)
+            for room_type_id, rate_plan_id, d, _ in updates:
+                by_pair[(room_type_id, rate_plan_id)].append(d)
+            for (rt_id, rp_id), ds in by_pair.items():
+                schedule_push_channex_rates(
+                    background_tasks,
+                    tenant_id,
+                    prop_id,
+                    rt_id,
+                    rp_id,
+                    ds,
+                )
     return BulkRatesPutResponse(rows_upserted=n)

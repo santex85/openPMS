@@ -29,6 +29,7 @@ from app.api.routes import (
     auth,
     bookings,
     channex,
+    channex_inbound,
     country_packs,
     dashboard,
     guests,
@@ -317,6 +318,11 @@ def create_app() -> FastAPI:
         tags=["api-keys"],
     )
     application.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+    application.include_router(
+        channex_inbound.router,
+        prefix="/webhooks",
+        tags=["channex-webhooks"],
+    )
     application.include_router(channex.router, prefix="/channex", tags=["channex"])
     application.include_router(
         audit_log.router,
