@@ -55,7 +55,22 @@ class GuestCreate(BaseModel):
             raise ValueError("nationality must be ISO 3166-1 alpha-2")
         return s
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "first_name": "Somchai",
+                "last_name": "Jaidee",
+                "email": "somchai@example.com",
+                "phone": "+66812345678",
+                "passport_data": None,
+                "nationality": "TH",
+                "date_of_birth": "1990-01-15",
+                "notes": None,
+                "vip_status": False,
+            }
+        },
+    )
 
 
 class GuestPatch(BaseModel):

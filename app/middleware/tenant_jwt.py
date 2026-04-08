@@ -26,6 +26,7 @@ def _is_auth_exempt_path(path: str) -> bool:
         "/redoc",
         "/docs/oauth2-redirect",
         "/favicon.ico",
+        "/developer",
         "/auth/register",
         "/auth/login",
         "/auth/refresh",

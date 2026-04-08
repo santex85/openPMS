@@ -24,7 +24,16 @@ class WebhookSubscriptionCreate(BaseModel):
         True, description="Inactive subscriptions receive no deliveries."
     )
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "url": "https://integrations.example.com/hooks/openpms",
+                "events": ["booking.created", "booking.updated"],
+                "is_active": True,
+            }
+        },
+    )
 
 
 class WebhookDeliveryLogRead(BaseModel):

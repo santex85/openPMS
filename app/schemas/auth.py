@@ -17,7 +17,17 @@ class AuthRegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=256)
     full_name: str = Field(..., min_length=1, max_length=255)
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "tenant_name": "Demo Resort Co",
+                "email": "owner@example.com",
+                "password": "change-me-please",
+                "full_name": "Owner User",
+            }
+        },
+    )
 
 
 class AuthLoginRequest(BaseModel):
@@ -30,7 +40,16 @@ class AuthLoginRequest(BaseModel):
     )
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=256)
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "tenant_id": None,
+                "email": "owner@example.com",
+                "password": "change-me-please",
+            }
+        },
+    )
 
     @field_validator("tenant_id", mode="before")
     @classmethod

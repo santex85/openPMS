@@ -125,7 +125,16 @@ async def get_availability_grid(
     return grid
 
 
-@router.get("/rooms-for-stay", response_model=list[RoomRead])
+@router.get(
+    "/rooms-for-stay",
+    response_model=list[RoomRead],
+    summary="Assignable rooms for a stay (canonical)",
+    description=(
+        "Rooms free for the given stay window. "
+        "This is the canonical path; older aliases under `/assignable-rooms-for-stay` "
+        "and `/bookings/assignable-rooms-for-stay` are deprecated."
+    ),
+)
 async def get_inventory_rooms_for_stay(
     _: InventoryReadRolesDep,
     session: SessionDep,

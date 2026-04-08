@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenPMS — Developer portal</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #111; --muted: #555; --bd: #ccc; --bg: #fafafa; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #eee; --muted: #aaa; --bd: #444; --bg: #1a1a1a; }
+    }
+    body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 52rem; margin: 0 auto; padding: 1.5rem; background: var(--bg); color: var(--fg); }
+    h1 { font-size: 1.75rem; }
+    h2 { font-size: 1.25rem; margin-top: 2rem; border-bottom: 1px solid var(--bd); padding-bottom: 0.25rem; }
+    h3 { font-size: 1rem; margin-top: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.9rem; }
+    th, td { border: 1px solid var(--bd); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+    th { background: rgba(128,128,128,0.12); }
+    code, pre { font-family: ui-monospace, monospace; font-size: 0.85em; }
+    pre { overflow-x: auto; padding: 0.75rem; border: 1px solid var(--bd); border-radius: 4px; background: rgba(128,128,128,0.08); }
+    a { color: #06c; }
+    @media (prefers-color-scheme: dark) { a { color: #8cb4ff; } }
+    .muted { color: var(--muted); }
+    ol.steps { padding-left: 1.25rem; }
+    ol.steps li { margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>OpenPMS Developer portal</h1>
+  <p class="muted">API-first Property Management System. Use the links below for interactive docs and the machine-readable schema.</p>
+  <ul>
+    <li><a href="/docs">Swagger UI</a> — try requests (public page; calls still need auth).</li>
+    <li><a href="/redoc">ReDoc</a> — readable reference.</li>
+    <li><a href="/openapi.json">OpenAPI JSON</a> — SDKs and Postman import.</li>
+  </ul>
+
+  <h2>Getting started</h2>
+  <ol class="steps">
+    <li><strong>Register and obtain credentials</strong> — <code>POST /auth/register</code> creates a tenant and owner user; <code>POST /auth/login</code> returns JWT access and refresh tokens.</li>
+    <li><strong>First authenticated request</strong> — call any scoped route with header <code>Authorization: Bearer &lt;access_token&gt;</code>, or use an <strong>API key</strong> from <code>POST /api-keys</code> with header <code>X-API-Key: openpms_...</code>.</li>
+    <li><strong>Webhooks</strong> — create a subscription with <code>POST /webhooks/subscriptions</code>; events are delivered as <code>POST</code> to your HTTPS URL with header <code>X-Webhook-Signature: sha256=...</code> (HMAC over raw body).</li>
+  </ol>
+
+  <h2>Authentication</h2>
+  <p>User sessions use short-lived <strong>access JWTs</strong> and refresh tokens (see <code>/auth/login</code>, <code>/auth/refresh</code>). Integrations should use <strong>API keys</strong> with granular scopes (see table below). All tenant-scoped routes require a resolved tenant from the token or key.</p>
+
+  <h2>API key scopes</h2>
+  <table>
+    <thead><tr><th>Scope</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>bookings:read</code></td><td>Read bookings, folio, tape/list endpoints.</td></tr>
+      <tr><td><code>bookings:write</code></td><td>Create and modify bookings.</td></tr>
+      <tr><td><code>guests:read</code></td><td>Read guest profiles.</td></tr>
+      <tr><td><code>guests:write</code></td><td>Create and update guests.</td></tr>
+      <tr><td><code>inventory:read</code></td><td>Availability grid, rooms-for-stay, overrides (read).</td></tr>
+      <tr><td><code>inventory:write</code></td><td>Availability overrides and related writes.</td></tr>
+      <tr><td><code>rates:read</code></td><td>Rate plans and nightly rates (read).</td></tr>
+      <tr><td><code>rates:write</code></td><td>Modify rate plans and nightly rates.</td></tr>
+      <tr><td><code>housekeeping:read</code></td><td>Housekeeping board and status (read).</td></tr>
+      <tr><td><code>housekeeping:write</code></td><td>Update housekeeping status.</td></tr>
+      <tr><td><code>properties:read</code> / <code>properties:write</code></td><td>Property CRUD (write: owner/manager patterns).</td></tr>
+      <tr><td><code>rooms:read</code> / <code>rooms:write</code></td><td>Physical rooms.</td></tr>
+      <tr><td><code>room_types:read</code> / <code>room_types:write</code></td><td>Room types.</td></tr>
+      <tr><td><code>rate_plans:read</code> / <code>rate_plans:write</code></td><td>Rate plans.</td></tr>
+      <tr><td><code>country_packs:read</code></td><td>Regional settings (country packs), extensions (read).</td></tr>
+      <tr><td><code>country_packs:write</code></td><td>Apply regional settings / manage extensions.</td></tr>
+      <tr><td><code>webhooks:read</code> / <code>webhooks:write</code></td><td>Webhook subscriptions and delivery logs.</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">JWT users rely on <strong>roles</strong> (owner, manager, …) for UI routes; API keys use scopes above.</p>
+
+  <h2>Webhook events</h2>
+  <table>
+    <thead><tr><th>Event</th><th>When it fires</th></tr></thead>
+    <tbody>
+      <tr><td><code>booking.created</code></td><td>New booking persisted (includes <code>guest_merged</code> when deduplicated by email).</td></tr>
+      <tr><td><code>booking.updated</code></td><td>Booking fields changed (dates, room, rate, status, …).</td></tr>
+      <tr><td><code>booking.cancelled</code></td><td>Booking cancelled or no-show.</td></tr>
+      <tr><td><code>availability.changed</code></td><td>Inventory changed (override or booking impact).</td></tr>
+      <tr><td><code>rate.updated</code></td><td>Nightly rate / plan pricing changed.</td></tr>
+      <tr><td><code>guest.checked_in</code></td><td>Guest checked in — payload includes guest fields needed for compliance extensions.</td></tr>
+      <tr><td><code>guest.checked_out</code></td><td>Guest checked out.</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Outbound delivery body: compact JSON <code>{"event": "...", "data": {...}}</code>.</p>
+
+  <h2>Rate limits (selected routes)</h2>
+  <p>HTTP <code>429</code> when exceeded. Representative defaults:</p>
+  <table>
+    <thead><tr><th>Area</th><th>Typical limit</th></tr></thead>
+    <tbody>
+      <tr><td>Auth login/register/refresh</td><td>20–60 requests / minute per route</td></tr>
+      <tr><td>Bookings create/patch</td><td>30–120 / minute</td></tr>
+      <tr><td>Inventory overrides</td><td>30 / minute</td></tr>
+      <tr><td>Assignable rooms (all paths)</td><td>60 / minute</td></tr>
+      <tr><td>Properties PATCH</td><td>120 / minute</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Exact values are defined per-route in the codebase; see OpenAPI / Swagger for the full API surface.</p>
+
+  <h2>Regional settings (country packs)</h2>
+  <p>Built-in <strong>regional profiles</strong> (country packs) define currency, timezone, default times, and tax rules. Flow:</p>
+  <ol class="steps">
+    <li><code>GET /country-packs</code> — list available packs.</li>
+    <li><code>GET /country-packs/{code}</code> — full definition (taxes, payment methods).</li>
+    <li><code>POST /country-packs/{code}/apply</code> with body <code>{"property_id": "&lt;uuid&gt;"}</code> — applies the pack to a property (may be blocked after bookings exist; see <code>GET /properties/{property_id}/lock-status</code>).</li>
+  </ol>
+  <p>Folio lines can include auto-calculated taxes from the active pack; integrators (e.g. TM30) often attach <strong>extensions</strong> under <code>/country-packs/extensions</code> and property activation endpoints.</p>
+
+  <h2>SDKs &amp; tools</h2>
+  <p>Use <a href="/openapi.json">openapi.json</a> to generate clients (OpenAPI Generator, etc.). Official SDKs may be published later.</p>
+
+  <p class="muted" style="margin-top:3rem;">OpenPMS — Developer documentation. Static page served at <code>/developer</code>.</p>
+</body>
+</html>

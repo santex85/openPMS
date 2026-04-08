@@ -78,7 +78,27 @@ class BookingCreateRequest(BaseModel):
             raise ValueError(f"stay cannot exceed {MAX_STAY_NIGHTS} nights")
         return self
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "property_id": "550e8400-e29b-41d4-a716-446655440001",
+                "room_type_id": "550e8400-e29b-41d4-a716-446655440002",
+                "rate_plan_id": "550e8400-e29b-41d4-a716-446655440003",
+                "check_in": "2026-05-01",
+                "check_out": "2026-05-04",
+                "guest": {
+                    "first_name": "Somchai",
+                    "last_name": "Jaidee",
+                    "email": "somchai@example.com",
+                    "phone": "+66812345678",
+                },
+                "status": "confirmed",
+                "source": "api",
+                "force_new_guest": False,
+            }
+        },
+    )
 
 
 class NightlyPriceLine(BaseModel):

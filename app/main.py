@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request
@@ -14,7 +16,7 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -52,6 +54,12 @@ from app.tasks.cleanup_webhook_logs import cleanup_old_delivery_logs
 @limiter.exempt
 async def _health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@lru_cache(maxsize=1)
+def _developer_portal_html() -> str:
+    path = Path(__file__).resolve().parent / "static" / "developer.html"
+    return path.read_text(encoding="utf-8")
 
 
 async def _webhook_log_retention_loop(app: FastAPI) -> None:
@@ -133,42 +141,57 @@ def create_app() -> FastAPI:
         openapi_tags=[
             {
                 "name": "auth",
-                "description": "Tenant registration, login, token refresh, user invite, list users.",
+                "description": "Authentication and token management: registration, login, refresh, invites.",
             },
             {
                 "name": "bookings",
-                "description": "Bookings, folio, triggers webhooks on create/update.",
+                "description": "Booking lifecycle and folio; triggers webhooks on create/update.",
             },
-            {"name": "guests", "description": "Guest CRM and profiles."},
-            {
-                "name": "dashboard",
-                "description": "Property operational KPIs (arrivals, departures, occupancy, housekeeping).",
-            },
-            {
-                "name": "housekeeping",
-                "description": "Room housekeeping board and status updates.",
-            },
+            {"name": "guests", "description": "Guest profiles and CRM."},
             {
                 "name": "inventory",
-                "description": "Availability grid and blocked-room overrides.",
+                "description": "Room availability grid and blocked-room overrides.",
             },
-            {"name": "rates", "description": "Nightly rate read/write."},
-            {"name": "properties", "description": "Properties CRUD."},
-            {"name": "room-types", "description": "Room types per property."},
-            {"name": "rooms", "description": "Physical rooms."},
-            {"name": "rate-plans", "description": "Rate plans per property."},
+            {"name": "rates", "description": "Rate plans and nightly pricing."},
             {
-                "name": "api-keys",
-                "description": "Integration API keys (JWT-only management).",
+                "name": "housekeeping",
+                "description": "Room status and cleaning queue.",
+            },
+            {
+                "name": "country-packs",
+                "description": "Regional settings (country packs), apply-to-property, tax preview, extensions.",
             },
             {
                 "name": "webhooks",
-                "description": "HTTPS webhook subscriptions and delivery logs (JWT-only).",
+                "description": "Webhook subscriptions and delivery logs (JWT / API key).",
             },
             {
                 "name": "audit",
-                "description": "Append-only audit log read API (owner / manager).",
+                "description": "Audit log read API (owner / manager).",
             },
+            {
+                "name": "settings",
+                "description": (
+                    "Tenant configuration: **properties**, **room-types**, **rooms**, **rate-plans**, "
+                    "**api-keys**, **dashboard** KPIs, and related endpoints."
+                ),
+            },
+            {
+                "name": "properties",
+                "description": "Properties CRUD and property-scoped metadata.",
+            },
+            {"name": "room-types", "description": "Room types per property."},
+            {"name": "rooms", "description": "Physical rooms and assignment helpers."},
+            {"name": "rate-plans", "description": "Rate plans per property."},
+            {
+                "name": "api-keys",
+                "description": "Integration API keys (scopes); JWT-only management UI.",
+            },
+            {
+                "name": "dashboard",
+                "description": "Operational KPIs (arrivals, departures, occupancy).",
+            },
+            {"name": "system", "description": "Liveness and public docs entrypoints."},
         ],
     )
     application.state.limiter = limiter
@@ -300,6 +323,19 @@ def create_app() -> FastAPI:
         _health_check,
         methods=["GET"],
         tags=["system"],
+    )
+
+    @limiter.exempt
+    async def developer_portal() -> HTMLResponse:
+        """Static developer portal (no auth); see also /docs and /openapi.json."""
+        return HTMLResponse(content=_developer_portal_html())
+
+    application.add_api_route(
+        "/developer",
+        developer_portal,
+        methods=["GET"],
+        tags=["system"],
+        include_in_schema=False,
     )
 
     return application

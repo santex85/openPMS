@@ -8,9 +8,9 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.bookings.booking import Booking
-from app.models.bookings.booking_line import BookingLine
 from app.models.bookings.guest import Guest
 from app.schemas.guest import GuestBookingSummary, GuestCreate, GuestPatch
 
@@ -105,6 +105,7 @@ async def get_guest_with_booking_summaries(
 
     b_stmt = (
         select(Booking)
+        .options(selectinload(Booking.lines))
         .where(
             Booking.tenant_id == tenant_id,
             Booking.guest_id == guest_id,
@@ -112,21 +113,13 @@ async def get_guest_with_booking_summaries(
         .order_by(Booking.id.desc())
     )
     b_result = await session.execute(b_stmt)
-    bookings = list(b_result.scalars().all())
+    bookings = list(b_result.scalars().unique().all())
     if not bookings:
         return guest, []
 
-    bid_list = [b.id for b in bookings]
-    ln_stmt = select(BookingLine.booking_id, BookingLine.date).where(
-        BookingLine.tenant_id == tenant_id,
-        BookingLine.booking_id.in_(bid_list),
-    )
-    ln_result = await session.execute(ln_stmt)
-    by_booking: dict[UUID, list] = {bid: [] for bid in bid_list}
-    for row in ln_result.all():
-        by_booking[row.booking_id].append(row.date)
-
-    summaries = [_summarize_booking(b, by_booking.get(b.id, [])) for b in bookings]
+    summaries = [
+        _summarize_booking(b, [ln.date for ln in b.lines]) for b in bookings
+    ]
     return guest, summaries
 
 
