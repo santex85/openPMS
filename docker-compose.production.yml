@@ -26,6 +26,21 @@ services:
     networks:
       - internal
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   api:
     build: .
     restart: unless-stopped
@@ -33,13 +48,43 @@ services:
       - .env.production
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-openpms}
+      CELERY_BROKER_URL: redis://redis:6379/0
     expose:
       - "8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - internal
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A app.worker:celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-openpms}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.worker:celery_app", "inspect", "ping", "--timeout", "10"]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   caddy:
     image: caddy:2-alpine

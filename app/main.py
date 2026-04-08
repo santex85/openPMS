@@ -28,6 +28,7 @@ from app.api.routes import (
     audit_log,
     auth,
     bookings,
+    channex,
     country_packs,
     dashboard,
     guests,
@@ -164,6 +165,10 @@ def create_app() -> FastAPI:
             {
                 "name": "webhooks",
                 "description": "Webhook subscriptions and delivery logs (JWT / API key).",
+            },
+            {
+                "name": "channex",
+                "description": "Channex Channel Manager onboarding: connect, map rooms/rates, status.",
             },
             {
                 "name": "audit",
@@ -312,6 +317,7 @@ def create_app() -> FastAPI:
         tags=["api-keys"],
     )
     application.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+    application.include_router(channex.router, prefix="/channex", tags=["channex"])
     application.include_router(
         audit_log.router,
         prefix="/audit-log",

@@ -100,6 +100,10 @@ class Settings(BaseSettings):
             "When false, POST /auth/register returns 403; use invite flow (/auth/invite) instead."
         ),
     )
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Celery broker URL (Redis).",
+    )
 
     @model_validator(mode="after")
     def validate_jwt_config(self) -> Self:

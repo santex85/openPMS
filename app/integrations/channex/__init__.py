@@ -1,0 +1,1 @@
+"""Channex Channel Manager integration."""

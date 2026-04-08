@@ -16,6 +16,12 @@ from app.models.core import (  # noqa: F401
     Tenant,
 )
 from app.models.integrations import (  # noqa: F401
+    ChannexAriPushLog,
+    ChannexBookingRevision,
+    ChannexPropertyLink,
+    ChannexRatePlanMap,
+    ChannexRoomTypeMap,
+    ChannexWebhookLog,
     CountryPackExtension,
     PropertyExtension,
     WebhookDeliveryLog,

@@ -14,7 +14,7 @@ log = structlog.get_logger()
 _derived_fernet_warning_emitted: bool = False
 
 
-def _fernet_instance(settings: Settings) -> Fernet:
+def get_fernet(settings: Settings) -> Fernet:
     global _derived_fernet_warning_emitted
     raw = (settings.webhook_secret_fernet_key or "").strip()
     if raw:
@@ -34,13 +34,13 @@ def _fernet_instance(settings: Settings) -> Fernet:
 
 
 def encrypt_webhook_secret(settings: Settings, plain: str) -> str:
-    return _fernet_instance(settings).encrypt(plain.encode("utf-8")).decode("ascii")
+    return get_fernet(settings).encrypt(plain.encode("utf-8")).decode("ascii")
 
 
 def decrypt_webhook_secret(settings: Settings, stored: str) -> str:
     """Return plaintext signing secret; treat non-Fernet rows as legacy plaintext."""
     try:
-        return _fernet_instance(settings).decrypt(stored.encode("ascii")).decode("utf-8")
+        return get_fernet(settings).decrypt(stored.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, UnicodeEncodeError):
         return stored
 
