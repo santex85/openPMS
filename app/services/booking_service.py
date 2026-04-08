@@ -327,6 +327,23 @@ async def create_booking(
         total,
     )
 
+    night_list = [d for d, _ in per_night]
+    picked_room = await _pick_first_free_room_for_stay(
+        session,
+        tenant_id,
+        body.property_id,
+        body.room_type_id,
+        night_list,
+        booking.id,
+    )
+    if picked_room is not None:
+        await assign_booking_room(
+            session,
+            tenant_id,
+            booking.id,
+            picked_room,
+        )
+
     return BookingCreateResponse(
         booking_id=booking.id,
         guest_id=guest.id,
@@ -437,6 +454,14 @@ def _stay_bounds_from_lines(lines: list[BookingLine]) -> tuple[date, date]:
     return min(nights), max(nights) + timedelta(days=1)
 
 
+def _unified_room_id_from_lines(lines: list[BookingLine]) -> UUID | None:
+    """Single physical room if every assigned line uses it; else None (unassigned or mixed)."""
+    assigned = {ln.room_id for ln in lines if ln.room_id is not None}
+    if len(assigned) == 1:
+        return next(iter(assigned))
+    return None
+
+
 async def _assert_no_room_conflict(
     session: AsyncSession,
     tenant_id: UUID,
@@ -468,6 +493,50 @@ async def _assert_no_room_conflict(
             "room is already used by another active booking on overlapping nights",
             status_code=409,
         )
+
+
+async def _pick_first_free_room_for_stay(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+    room_type_id: UUID,
+    nights: list[date],
+    exclude_booking_id: UUID,
+) -> UUID | None:
+    """First physical room of the type (by name) with no overlapping active booking."""
+    night_list = sorted(set(nights))
+    if not night_list:
+        return None
+    stmt = (
+        select(Room)
+        .join(
+            RoomType,
+            (RoomType.tenant_id == Room.tenant_id)
+            & (RoomType.id == Room.room_type_id),
+        )
+        .where(
+            Room.tenant_id == tenant_id,
+            Room.room_type_id == room_type_id,
+            Room.deleted_at.is_(None),
+            RoomType.tenant_id == tenant_id,
+            RoomType.property_id == property_id,
+        )
+        .order_by(Room.name.asc())
+    )
+    result = await session.execute(stmt)
+    for room in result.scalars().all():
+        try:
+            await _assert_no_room_conflict(
+                session,
+                tenant_id,
+                room.id,
+                night_list,
+                exclude_booking_id,
+            )
+        except AssignBookingRoomError:
+            continue
+        return room.id
+    return None
 
 
 async def _release_booking_inventory(
@@ -667,6 +736,7 @@ async def patch_booking(
                 status_code=422,
             )
 
+        prior_room_to_restore: UUID | None = None
         if new_ci != ci or new_co != co:
             if booking.rate_plan_id is None:
                 raise PatchBookingError(
@@ -680,6 +750,8 @@ async def patch_booking(
                     status_code=409,
                 )
             room_type_id = next(iter(rt_ids))
+            if "room_id" not in data:
+                prior_room_to_restore = _unified_room_id_from_lines(lines)
             old_nights = sorted({ln.date for ln in lines})
             old_rows = await lock_and_validate_availability(
                 session,
@@ -742,6 +814,9 @@ async def patch_booking(
                 total,
             )
             await session.flush()
+            # Core DELETE leaves stale BookingLine objects in the identity map; next selectinload
+            # must load only the new rows from DB for assign_booking_room.
+            session.expire(booking, ["lines"])
             await replace_country_pack_tax_charges(
                 session,
                 tenant_id,
@@ -749,6 +824,13 @@ async def patch_booking(
                 booking.property_id,
                 total,
             )
+            if prior_room_to_restore is not None:
+                await assign_booking_room(
+                    session,
+                    tenant_id,
+                    booking_id,
+                    prior_room_to_restore,
+                )
 
     if "room_id" in data:
         await assign_booking_room(

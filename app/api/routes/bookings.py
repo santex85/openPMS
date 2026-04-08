@@ -475,6 +475,7 @@ async def patch_booking_by_id(
         entity_id=booking_id,
         new_values=_audit_patch_values(patch_data),
     )
+    await session.commit()
     if warn_balance is not None:
         payload = BookingCheckoutBalanceWarning(balance=warn_balance).model_dump(
             mode="json",
