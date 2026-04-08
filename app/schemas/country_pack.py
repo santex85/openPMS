@@ -132,6 +132,12 @@ class CountryPackApplyResponse(BaseModel):
     payment_methods: list[str]
 
 
+class PropertyLockStatusRead(BaseModel):
+    property_id: UUID
+    country_pack_locked: bool
+    booking_count: int
+
+
 class ExtensionCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=64)
     name: str = Field(..., min_length=1, max_length=100)

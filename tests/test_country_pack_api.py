@@ -140,6 +140,72 @@ def pack_api_ctx(db_engine: object, jwt_secret: str) -> dict[str, object]:
         yield ids
 
 
+@pytest.fixture
+def pack_api_no_booking_ctx(db_engine: object, jwt_secret: str) -> dict[str, object]:
+    """Tenant with owner, property (no country pack, no bookings)."""
+    tenant_id = uuid4()
+    owner_id = uuid4()
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _seed() -> dict[str, object]:
+        async with factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                    ),
+                    {"tid": str(tenant_id)},
+                )
+                session.add(
+                    Tenant(
+                        id=tenant_id,
+                        name="PackNoBookTenant",
+                        billing_email="nobook@example.com",
+                        status="active",
+                    ),
+                )
+                session.add(
+                    User(
+                        id=owner_id,
+                        tenant_id=tenant_id,
+                        email="owner@nobook.example.com",
+                        password_hash=hash_password("secret"),
+                        full_name="Owner",
+                        role="owner",
+                    ),
+                )
+                prop = Property(
+                    tenant_id=tenant_id,
+                    name="Empty Pack Property",
+                    timezone="UTC",
+                    currency="USD",
+                    checkin_time=time(14, 0),
+                    checkout_time=time(11, 0),
+                    country_pack_code=None,
+                )
+                session.add(prop)
+                await session.flush()
+                return {"property_id": prop.id}
+
+    ids = asyncio.run(_seed())
+    now = datetime.now(UTC)
+    token = jwt.encode(
+        {
+            "tenant_id": str(tenant_id),
+            "sub": str(owner_id),
+            "role": "owner",
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+        },
+        jwt_secret,
+        algorithm="HS256",
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app, base_url="http://test") as client:
+        ids["client"] = client
+        ids["headers"] = headers
+        yield ids
+
+
 @pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
 def test_list_country_packs_includes_th(pack_api_ctx: dict[str, object]) -> None:
     client: TestClient = pack_api_ctx["client"]  # type: ignore[assignment]
@@ -152,10 +218,12 @@ def test_list_country_packs_includes_th(pack_api_ctx: dict[str, object]) -> None
 
 
 @pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
-def test_apply_country_pack_th_updates_property(pack_api_ctx: dict[str, object]) -> None:
-    client: TestClient = pack_api_ctx["client"]  # type: ignore[assignment]
-    headers: dict[str, str] = pack_api_ctx["headers"]  # type: ignore[assignment]
-    pid = pack_api_ctx["property_id"]
+def test_apply_pack_ok_without_bookings(
+    pack_api_no_booking_ctx: dict[str, object],
+) -> None:
+    client: TestClient = pack_api_no_booking_ctx["client"]  # type: ignore[assignment]
+    headers: dict[str, str] = pack_api_no_booking_ctx["headers"]  # type: ignore[assignment]
+    pid = pack_api_no_booking_ctx["property_id"]
     r = client.post(
         "/country-packs/TH/apply",
         headers=headers,
@@ -169,6 +237,68 @@ def test_apply_country_pack_th_updates_property(pack_api_ctx: dict[str, object])
     assert gr.status_code == 200
     assert gr.json()["country_pack_code"] == "TH"
     assert gr.json()["currency"] == "THB"
+
+
+@pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
+def test_apply_pack_ok_change_pack_when_no_bookings(
+    pack_api_no_booking_ctx: dict[str, object],
+) -> None:
+    """Switch TH -> XX on property with zero bookings (pack was already applied)."""
+    client: TestClient = pack_api_no_booking_ctx["client"]  # type: ignore[assignment]
+    headers: dict[str, str] = pack_api_no_booking_ctx["headers"]  # type: ignore[assignment]
+    pid = pack_api_no_booking_ctx["property_id"]
+    r1 = client.post(
+        "/country-packs/TH/apply",
+        headers=headers,
+        json={"property_id": str(pid)},
+    )
+    assert r1.status_code == 200, r1.text
+    r2 = client.post(
+        "/country-packs/XX/apply",
+        headers=headers,
+        json={"property_id": str(pid)},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["country_pack_code"] == "XX"
+
+
+@pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
+def test_apply_pack_409_with_bookings(pack_api_ctx: dict[str, object]) -> None:
+    client: TestClient = pack_api_ctx["client"]  # type: ignore[assignment]
+    headers: dict[str, str] = pack_api_ctx["headers"]  # type: ignore[assignment]
+    pid = pack_api_ctx["property_id"]
+    r = client.post(
+        "/country-packs/XX/apply",
+        headers=headers,
+        json={"property_id": str(pid)},
+    )
+    assert r.status_code == 409, r.text
+    assert "booking" in r.json()["detail"].lower()
+
+
+@pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
+def test_lock_status_unlocked(pack_api_no_booking_ctx: dict[str, object]) -> None:
+    client: TestClient = pack_api_no_booking_ctx["client"]  # type: ignore[assignment]
+    headers: dict[str, str] = pack_api_no_booking_ctx["headers"]  # type: ignore[assignment]
+    pid = pack_api_no_booking_ctx["property_id"]
+    r = client.get(f"/properties/{pid}/lock-status", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["booking_count"] == 0
+    assert body["country_pack_locked"] is False
+    assert body["property_id"] == str(pid)
+
+
+@pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")
+def test_lock_status_locked(pack_api_ctx: dict[str, object]) -> None:
+    client: TestClient = pack_api_ctx["client"]  # type: ignore[assignment]
+    headers: dict[str, str] = pack_api_ctx["headers"]  # type: ignore[assignment]
+    pid = pack_api_ctx["property_id"]
+    r = client.get(f"/properties/{pid}/lock-status", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["booking_count"] >= 1
+    assert body["country_pack_locked"] is True
 
 
 @pytest.mark.skipif(not _database_url(), reason="DATABASE_URL not set")

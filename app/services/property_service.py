@@ -2,9 +2,10 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.bookings.booking import Booking
 from app.models.core.property import Property
 from app.schemas.property import PropertyCreate, PropertyPatch
 
@@ -40,6 +41,20 @@ async def list_properties(
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_bookings_for_property(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> int:
+    n = await session.scalar(
+        select(func.count(Booking.id)).where(
+            Booking.property_id == property_id,
+            Booking.tenant_id == tenant_id,
+        ),
+    )
+    return int(n or 0)
 
 
 async def get_property(

@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.bookings.booking import Booking
 from app.models.core.country_pack import CountryPack
 from app.models.core.property import Property
 from app.schemas.country_pack import (
@@ -212,6 +213,21 @@ async def apply_country_pack(
     )
     if prop is None:
         raise CountryPackServiceError("property not found", status_code=404)
+
+    if prop.country_pack_code is not None:
+        booking_count = await session.scalar(
+            select(func.count(Booking.id)).where(
+                Booking.property_id == property_id,
+                Booking.tenant_id == tenant_id,
+            ),
+        )
+        n = int(booking_count or 0)
+        if n > 0:
+            raise CountryPackServiceError(
+                f"Cannot change country pack: property has {n} booking(s). "
+                "Contact support.",
+                status_code=409,
+            )
 
     prop.country_pack_code = pack.code
     prop.currency = pack.currency_code

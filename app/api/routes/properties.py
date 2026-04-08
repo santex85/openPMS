@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
+from app.schemas.country_pack import PropertyLockStatusRead
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.services import property_service
 from app.services.audit_service import record_audit
@@ -57,6 +58,31 @@ async def list_properties(
 ) -> list[PropertyRead]:
     rows = await property_service.list_properties(session, tenant_id)
     return [PropertyRead.model_validate(r) for r in rows]
+
+
+@router.get("/{property_id}/lock-status", response_model=PropertyLockStatusRead)
+async def get_property_lock_status(
+    _: PropertyReadRolesDep,
+    property_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> PropertyLockStatusRead:
+    prop = await property_service.get_property(session, tenant_id, property_id)
+    if prop is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    booking_count = await property_service.count_bookings_for_property(
+        session,
+        tenant_id,
+        property_id,
+    )
+    return PropertyLockStatusRead(
+        property_id=property_id,
+        country_pack_locked=booking_count > 0,
+        booking_count=booking_count,
+    )
 
 
 @router.get("/{property_id}", response_model=PropertyRead)
