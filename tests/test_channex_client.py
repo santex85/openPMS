@@ -231,3 +231,45 @@ async def test_push_ari_5xx_exhausted_raises() -> None:
             await client.push_ari([{"x": 1}])
     assert exc_info.value.status_code == 500
     assert m.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_push_restrictions_raises_on_meta_warnings() -> None:
+    client = ChannexClient("k", "production")
+    mock_r = _resp(
+        200,
+        {
+            "data": [],
+            "meta": {
+                "message": "Success",
+                "warnings": [{"rate_plan_id": "x", "warning": {"rate": ["invalid"]}}],
+            },
+        },
+    )
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        with pytest.raises(ChannexApiError) as exc_info:
+            await client.push_restrictions(
+                [
+                    {
+                        "property_id": "p",
+                        "rate_plan_id": "r",
+                        "date": "2026-01-01",
+                        "rate": "100.00",
+                    },
+                ],
+            )
+    assert "Channex rejected" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_push_restrictions_ok_when_meta_warnings_empty() -> None:
+    client = ChannexClient("k", "production")
+    mock_r = _resp(
+        200,
+        {"data": [{"type": "task", "id": "t1"}], "meta": {"warnings": []}},
+    )
+    with patch.object(client, "_raw_request", new_callable=AsyncMock) as m:
+        m.return_value = mock_r
+        out = await client.push_restrictions([])
+    assert out["meta"]["warnings"] == []

@@ -13,6 +13,8 @@ from app.core.config import get_settings
 from app.db.session import create_async_engine_and_sessionmaker
 from app.db.rls_session import tenant_transaction_session
 from app.integrations.channex.client import ChannexApiError, ChannexClient
+from app.integrations.channex.rate_value import channex_rate_string
+from app.models.core.property import Property
 from app.models.integrations.channex_ari_push_log import ChannexAriPushLog
 from app.models.integrations.channex_rate_plan_map import ChannexRatePlanMap
 from app.models.integrations.channex_room_type_map import ChannexRoomTypeMap
@@ -37,6 +39,7 @@ def _restriction_row(
     cx_rp: str,
     d: date,
     rrow: Rate,
+    currency_code: str,
 ) -> dict[str, object] | None:
     dec = rrow.price
     if dec <= 0:
@@ -45,7 +48,7 @@ def _restriction_row(
         "property_id": prop_cx,
         "rate_plan_id": cx_rp,
         "date": d.isoformat(),
-        "rate": float(dec),
+        "rate": channex_rate_string(dec, currency_code),
         "stop_sell": rrow.stop_sell,
     }
     if rrow.min_stay_arrival is not None:
@@ -74,6 +77,16 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                     status=link_row.status,
                 )
                 return
+
+            currency_raw = await session.scalar(
+                select(Property.currency).where(
+                    Property.tenant_id == tenant_id,
+                    Property.id == property_id,
+                ),
+            )
+            currency_code = (currency_raw or "USD").strip().upper()[:3]
+            if len(currency_code) != 3:
+                currency_code = "USD"
 
             stmt_maps = select(ChannexRoomTypeMap).where(
                 ChannexRoomTypeMap.tenant_id == tenant_id,
@@ -153,7 +166,13 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                     rrow = rate_rows_by_key.get((rt_open, rpm.rate_plan_id, d))
                     if rrow is None:
                         continue
-                    built = _restriction_row(prop_cx, cx_rp, d, rrow)
+                    built = _restriction_row(
+                        prop_cx,
+                        cx_rp,
+                        d,
+                        rrow,
+                        currency_code,
+                    )
                     if built is not None:
                         rest_values.append(built)
 
@@ -170,7 +189,14 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                 link_row.error_message = msg[:2000]
                 await session.flush()
                 log.exception("channex_ari_sync_failed", error=msg)
-                raise
+                # Do not re-raise: ``session.begin()`` would roll back and hide the error.
+                return
+            except Exception as exc:
+                msg = str(exc)[:2000]
+                link_row.error_message = msg
+                await session.flush()
+                log.exception("channex_ari_sync_unexpected", error=msg)
+                return
 
             link_row.last_sync_at = datetime.now(timezone.utc)
             link_row.error_message = None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, cast
 
 import httpx
@@ -35,6 +36,37 @@ class ChannexApiError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.body = body
+
+
+def ensure_no_channex_ari_warnings(payload: Any, *, endpoint: str) -> None:
+    """
+    Channex returns HTTP 200 with ``meta.warnings`` when some ARI rows are rejected.
+    Treat non-empty warnings as failure so sync tasks can persist ``error_message``.
+    """
+    if not isinstance(payload, dict):
+        return
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return
+    warnings = meta.get("warnings")
+    if not isinstance(warnings, list) or len(warnings) == 0:
+        return
+    log.warning(
+        "channex_ari_meta_warnings",
+        endpoint=endpoint,
+        warnings_count=len(warnings),
+        warnings_preview=warnings[:5],
+        hint=(
+            "Verify OpenPMS Channex rate_plan_id maps match Channex UI; "
+            "multi-occupancy rate plans need a rates[] payload, not a single rate."
+        ),
+    )
+    detail = json.dumps(warnings, default=str)[:1900]
+    raise ChannexApiError(
+        f"Channex rejected part of ARI update ({endpoint}): {detail}",
+        status_code=200,
+        body=detail,
+    )
 
 
 class ChannexClient:
@@ -356,12 +388,16 @@ class ChannexClient:
     async def push_availability(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         """POST /availability — room-type level inventory."""
         r = await self._request("POST", "availability", json_body={"values": values})
-        return cast(dict[str, Any], r.json())
+        payload = r.json()
+        ensure_no_channex_ari_warnings(payload, endpoint="availability")
+        return cast(dict[str, Any], payload)
 
     async def push_restrictions(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         """POST /restrictions — rate and restrictions per rate plan."""
         r = await self._request("POST", "restrictions", json_body={"values": values})
-        return cast(dict[str, Any], r.json())
+        payload = r.json()
+        ensure_no_channex_ari_warnings(payload, endpoint="restrictions")
+        return cast(dict[str, Any], payload)
 
     async def push_ari(self, values: list[dict[str, Any]]) -> dict[str, Any]:
         r = await self._request("POST", "ari_upload", json_body={"values": values})

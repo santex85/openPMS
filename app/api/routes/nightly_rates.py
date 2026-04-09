@@ -23,6 +23,7 @@ from app.services.rates_admin_service import (
     RatesServiceError,
     bulk_upsert_rates,
     list_rates_for_period,
+    list_rates_for_room_types_period,
 )
 from app.services.webhook_runner import run_rate_updated_webhooks
 
@@ -58,6 +59,49 @@ async def get_rates(
             session,
             tenant_id,
             room_type_id=room_type_id,
+            rate_plan_id=rate_plan_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except RatesServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return [RateRead.model_validate(r) for r in rows]
+
+
+@router.get("/batch", response_model=list[RateRead])
+@limiter.limit("60/minute")
+async def get_rates_batch(
+    request: Request,
+    _: RatesReadRolesDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    rate_plan_id: UUID = Query(...),
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    room_type_ids: str = Query(
+        ...,
+        description="Comma-separated room type UUIDs",
+    ),
+) -> list[RateRead]:
+    _ = request
+    parts = [p.strip() for p in room_type_ids.split(",") if p.strip()]
+    if not parts:
+        raise HTTPException(
+            status_code=422,
+            detail="room_type_ids must list at least one UUID",
+        )
+    try:
+        rt_ids = [UUID(p) for p in parts]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="room_type_ids must be comma-separated UUIDs",
+        ) from exc
+    try:
+        rows = await list_rates_for_room_types_period(
+            session,
+            tenant_id,
+            room_type_ids=rt_ids,
             rate_plan_id=rate_plan_id,
             start_date=start_date,
             end_date=end_date,

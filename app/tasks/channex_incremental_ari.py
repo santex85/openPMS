@@ -9,11 +9,14 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.rls_session import tenant_transaction_session
 from app.db.session import create_async_engine_and_sessionmaker
 from app.integrations.channex.client import ChannexApiError, ChannexClient
+from app.integrations.channex.rate_value import channex_rate_string
+from app.models.core.property import Property
 from app.models.integrations.channex_rate_plan_map import ChannexRatePlanMap
 from app.models.integrations.channex_room_type_map import ChannexRoomTypeMap
 from app.models.rates.availability_ledger import AvailabilityLedger
@@ -31,10 +34,28 @@ async def _sleep_between_batches() -> None:
     await asyncio.sleep(_BATCH_DELAY_SEC)
 
 
+async def _property_currency_code(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> str:
+    raw = await session.scalar(
+        select(Property.currency).where(
+            Property.tenant_id == tenant_id,
+            Property.id == property_id,
+        ),
+    )
+    cc = (raw or "USD").strip().upper()[:3]
+    if len(cc) != 3:
+        return "USD"
+    return cc
+
+
 def _restriction_payload(
     prop_cx: str,
     cx_rp: str,
     d: date,
+    currency_code: str,
     *,
     price: Decimal | None,
     stop_sell: bool | None = None,
@@ -47,7 +68,7 @@ def _restriction_payload(
         "date": d.isoformat(),
     }
     if price is not None:
-        row["rate"] = float(price)
+        row["rate"] = channex_rate_string(price, currency_code)
     if stop_sell is not None:
         row["stop_sell"] = stop_sell
     if min_stay_arrival is not None:
@@ -123,7 +144,7 @@ async def _run_push_channex_availability(
                 link_row.error_message = msg[:2000]  # type: ignore[attr-defined]
                 await session.flush()
                 log.exception("channex_incremental_avail_failed", error=msg)
-                raise
+                return
             await session.flush()
             log.info("channex_incremental_avail_ok", count=len(av_values))
     finally:
@@ -169,6 +190,12 @@ async def _run_push_channex_rates(
                 log.warning("channex_incremental_rates_no_rate_map")
                 return
 
+            currency_code = await _property_currency_code(
+                session,
+                tenant_id,
+                link_row.property_id,
+            )
+
             stmt_rates = select(Rate).where(
                 Rate.tenant_id == tenant_id,
                 Rate.room_type_id == room_type_id,
@@ -192,6 +219,7 @@ async def _run_push_channex_rates(
                     prop_cx,
                     cx_rp,
                     d,
+                    currency_code,
                     price=dec,
                     stop_sell=rrow.stop_sell,
                     min_stay_arrival=rrow.min_stay_arrival,
@@ -214,7 +242,7 @@ async def _run_push_channex_rates(
                 link_row.error_message = msg[:2000]  # type: ignore[attr-defined]
                 await session.flush()
                 log.exception("channex_incremental_rates_failed", error=msg)
-                raise
+                return
             await session.flush()
             log.info("channex_incremental_rates_ok", count=len(rest_values))
     finally:
@@ -258,6 +286,12 @@ async def _run_push_channex_stop_sell(
                 log.warning("channex_incremental_stop_sell_no_rate_maps")
                 return
 
+            currency_code = await _property_currency_code(
+                session,
+                tenant_id,
+                link_row.property_id,
+            )
+
             prop_cx = link_row.channex_property_id.strip()
             rp_ids = {m.rate_plan_id for m in rate_maps}
             stmt_rates = select(Rate).where(
@@ -285,6 +319,7 @@ async def _run_push_channex_stop_sell(
                             prop_cx,
                             cx_rp,
                             d,
+                            currency_code,
                             price=price,
                             stop_sell=True,
                         ),
@@ -301,7 +336,7 @@ async def _run_push_channex_stop_sell(
                 link_row.error_message = msg[:2000]  # type: ignore[attr-defined]
                 await session.flush()
                 log.exception("channex_incremental_stop_sell_failed", error=msg)
-                raise
+                return
             await session.flush()
             log.info("channex_incremental_stop_sell_ok", count=len(rest_values))
     finally:

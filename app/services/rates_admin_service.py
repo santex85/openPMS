@@ -97,6 +97,64 @@ async def list_rates_for_period(
     return list(result.scalars().all())
 
 
+async def list_rates_for_room_types_period(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    room_type_ids: list[UUID],
+    rate_plan_id: UUID,
+    start_date: date,
+    end_date: date,
+) -> list[Rate]:
+    """Rates for several room types, one rate plan, same property (calendar batch load)."""
+    if end_date < start_date:
+        raise RatesServiceError(
+            "end_date must be on or after start_date",
+            status_code=422,
+        )
+    uniq: list[UUID] = list(dict.fromkeys(room_type_ids))
+    if not uniq:
+        raise RatesServiceError("room_type_ids cannot be empty", status_code=422)
+
+    rp = await session.scalar(
+        select(RatePlan).where(
+            RatePlan.tenant_id == tenant_id,
+            RatePlan.id == rate_plan_id,
+        ),
+    )
+    if rp is None:
+        raise RatesServiceError("rate_plan not found", status_code=404)
+    prop_id = rp.property_id
+
+    stmt_rt = select(RoomType).where(
+        RoomType.tenant_id == tenant_id,
+        RoomType.id.in_(uniq),
+    )
+    found = list((await session.execute(stmt_rt)).scalars().all())
+    if len(found) != len(uniq):
+        raise RatesServiceError("one or more room_types not found", status_code=404)
+    for rt in found:
+        if rt.property_id != prop_id:
+            raise RatesServiceError(
+                "room types must belong to the same property as the rate plan",
+                status_code=409,
+            )
+
+    stmt = (
+        select(Rate)
+        .where(
+            Rate.tenant_id == tenant_id,
+            Rate.rate_plan_id == rate_plan_id,
+            Rate.room_type_id.in_(uniq),
+            Rate.date >= start_date,
+            Rate.date <= end_date,
+        )
+        .order_by(Rate.room_type_id.asc(), Rate.date.asc())
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def bulk_upsert_rates(
     session: AsyncSession,
     tenant_id: UUID,

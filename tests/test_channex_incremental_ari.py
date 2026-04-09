@@ -194,7 +194,7 @@ async def test_incremental_availability_push(incremental_ctx: dict[str, object])
 
 
 @pytest.mark.asyncio
-async def test_incremental_rates_sends_float_and_restrictions(
+async def test_incremental_rates_sends_decimal_string_and_restrictions(
     incremental_ctx: dict[str, object],
 ) -> None:
     tid: object = incremental_ctx["tenant_id"]
@@ -218,7 +218,7 @@ async def test_incremental_rates_sends_float_and_restrictions(
     mock_client.push_restrictions.assert_awaited()
     values = mock_client.push_restrictions.await_args[0][0]
     assert len(values) == 1
-    assert values[0]["rate"] == 199.5
+    assert values[0]["rate"] == "199.50"
     assert values[0]["stop_sell"] is False
     assert values[0]["min_stay_arrival"] == 2
     assert values[0]["max_stay"] == 14

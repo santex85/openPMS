@@ -16,13 +16,9 @@ def create_celery_app() -> Celery:
         task_acks_late=True,
         worker_prefetch_multiplier=1,
         broker_connection_retry_on_startup=True,
-        task_routes={
-            "channex_full_ari_sync": {"queue": "channex_ari"},
-            "push_channex_availability": {"queue": "channex_ari"},
-            "push_channex_rates": {"queue": "channex_ari"},
-            "push_channex_stop_sell": {"queue": "channex_ari"},
-            "channex_process_webhook": {"queue": "channex_ari"},
-        },
+        # Channex tasks use the default ``celery`` queue so a plain
+        # ``celery -A app.worker:celery_app worker`` consumes them. A separate
+        # ``channex_ari`` queue is optional for scaled deployments (route tasks there in ops).
     )
     return app
 

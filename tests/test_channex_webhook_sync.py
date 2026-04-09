@@ -232,6 +232,15 @@ async def test_channex_full_ari_sync_pushes_and_updates_last_sync(
 
     assert mock_client.push_availability.await_count >= 1
     assert mock_client.push_restrictions.await_count >= 1
+    restriction_batches = [
+        call.args[0]
+        for call in mock_client.push_restrictions.call_args_list
+        if call.args
+    ]
+    flat = [row for batch in restriction_batches for row in batch]
+    rate_vals = [row.get("rate") for row in flat if row.get("rate") is not None]
+    assert rate_vals
+    assert all(isinstance(r, str) for r in rate_vals)
 
     factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
