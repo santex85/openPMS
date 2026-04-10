@@ -5,7 +5,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_jwt_user, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_jwt_user,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import COUNTRY_PACKS_READ, COUNTRY_PACKS_WRITE
 from app.schemas.country_pack import (
     CountryPackApplyRequest,
@@ -28,13 +35,21 @@ router = APIRouter(dependencies=[Depends(require_jwt_user())])
 
 PackReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(COUNTRY_PACKS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(COUNTRY_PACKS_READ),
+        ),
+    ),
 ]
 PackOwnerRolesDep = Annotated[
     None,
-    Depends(require_roles("owner")),
-    Depends(require_scopes(COUNTRY_PACKS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner"),
+            require_scopes(COUNTRY_PACKS_WRITE),
+        ),
+    ),
 ]
 
 

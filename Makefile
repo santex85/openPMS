@@ -2,7 +2,7 @@
 # Requires: Docker Compose v2, make. Optional: .venv for local `make test`.
 
 .PHONY: help install up down build logs ps restart \
-	test test-docker alembic-upgrade alembic-revision load-test-overbooking shell-api shell-db
+	test test-docker test-docker-cov alembic-upgrade alembic-revision load-test-overbooking shell-api shell-db
 
 COMPOSE := docker compose
 PYTEST_ARGS ?=
@@ -24,6 +24,7 @@ help:
 	@echo "  make restart              — restart api"
 	@echo "  make test                 — pytest locally ($(PYTEST_ARGS))"
 	@echo "  make test-docker          — pytest inside compose (same DB as api)"
+	@echo "  make test-docker-cov      — pytest + coverage app to 100% threshold"
 	@echo "  make alembic-upgrade      — alembic upgrade head (one-off api container)"
 	@echo "  make alembic-revision MSG=... — create empty revision (set MSG)"
 	@echo "  make load-test-overbooking — 100 concurrent POST /bookings (needs up)"
@@ -55,7 +56,10 @@ test:
 	$(PYTHON) -m pytest tests/ $(PYTEST_ARGS)
 
 test-docker: build
-	$(COMPOSE) run --rm $(API_SERVICE) pytest tests/ -v $(PYTEST_ARGS)
+	$(COMPOSE) run --rm $(API_SERVICE) sh -c "alembic upgrade head && pytest tests/ -v $(PYTEST_ARGS)"
+
+test-docker-cov: build
+	$(COMPOSE) run --rm $(API_SERVICE) sh -c "alembic upgrade head && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=100 $(PYTEST_ARGS)"
 
 alembic-upgrade: build
 	$(COMPOSE) run --rm $(API_SERVICE) alembic upgrade head
@@ -65,10 +69,14 @@ alembic-revision: build
 	$(COMPOSE) run --rm $(API_SERVICE) alembic revision -m "$(MSG)"
 
 # Inherits DATABASE_URL / JWT_SECRET from compose + project .env (same as running api).
+# Needs headroom for 100 concurrent DB sessions (api pool) and Postgres max_connections (compose db).
 load-test-overbooking: build
-	$(COMPOSE) up -d $(API_SERVICE)
+	@DB_POOL_SIZE=$${DB_POOL_SIZE:-60} DB_MAX_OVERFLOW=$${DB_MAX_OVERFLOW:-40} \
+		$(COMPOSE) up -d --force-recreate $(API_SERVICE)
+	@sleep 12
 	$(COMPOSE) run --rm -e PYTHONPATH=/app $(API_SERVICE) \
-		python scripts/load_test_overbooking.py --base-url http://$(API_SERVICE):8000
+		python scripts/load_test_overbooking.py --base-url http://$(API_SERVICE):8000 \
+		$$(test -n "$$LOAD_TEST_CONCURRENCY" && echo --concurrency $$LOAD_TEST_CONCURRENCY)
 
 shell-api:
 	$(COMPOSE) exec $(API_SERVICE) sh

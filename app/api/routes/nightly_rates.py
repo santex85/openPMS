@@ -8,7 +8,13 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.models.core.room_type import RoomType
 from app.core.api_scopes import RATES_READ, RATES_WRITE
 from app.core.rate_limit import limiter
@@ -31,13 +37,21 @@ router = APIRouter(prefix="/rates", tags=["rates"])
 
 RatesReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(RATES_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(RATES_READ),
+        ),
+    ),
 ]
 RatesWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(RATES_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(RATES_WRITE),
+        ),
+    ),
 ]
 
 

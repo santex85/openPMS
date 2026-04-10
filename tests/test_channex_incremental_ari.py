@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, create_async_engine
 
 from app.core.config import clear_settings_cache, get_settings
 from app.core.security import hash_password
@@ -32,6 +32,8 @@ from app.tasks.channex_incremental_ari import (
     _run_push_channex_rates,
 )
 
+from tests.db_seed import disable_row_security_for_test_seed
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -45,20 +47,23 @@ def channex_encrypt_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def incremental_ctx(db_engine: object, channex_encrypt_env: None) -> dict[str, object]:
-    if not _database_url():
+def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
+    url = _database_url()
+    if not url:
         pytest.skip("Set DATABASE_URL for integration tests")
 
     tenant_id = uuid4()
     owner_id = uuid4()
     cx_property_id = str(uuid4())
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    seed_engine = create_async_engine(url)
+    factory = async_sessionmaker(seed_engine, class_=AsyncSession, expire_on_commit=False)
     settings = get_settings()
     enc_key = encrypt_channex_api_key(settings, "incremental-test-key")
 
     async def _seed() -> dict[str, object]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                     {"tid": str(tenant_id)},
@@ -71,6 +76,7 @@ def incremental_ctx(db_engine: object, channex_encrypt_env: None) -> dict[str, o
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,
@@ -164,7 +170,10 @@ def incremental_ctx(db_engine: object, channex_encrypt_env: None) -> dict[str, o
                     "today": today,
                 }
 
-    return asyncio.run(_seed())
+    try:
+        return asyncio.run(_seed())
+    finally:
+        asyncio.run(seed_engine.dispose())
 
 
 @pytest.mark.asyncio
@@ -256,6 +265,7 @@ def test_put_rates_bulk_enqueues_channex_rates_delay(
     async def _seed() -> tuple[str, str, str, str]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                     {"tid": str(tenant_id)},
@@ -268,6 +278,7 @@ def test_put_rates_bulk_enqueues_channex_rates_delay(
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,

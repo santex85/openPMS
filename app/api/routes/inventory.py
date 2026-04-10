@@ -16,7 +16,13 @@ from fastapi import (
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
 from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
@@ -45,14 +51,22 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 InventoryReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(INVENTORY_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(INVENTORY_READ),
+        ),
+    ),
 ]
 
 InventoryWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(INVENTORY_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(INVENTORY_WRITE),
+        ),
+    ),
 ]
 
 

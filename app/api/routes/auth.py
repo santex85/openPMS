@@ -10,6 +10,7 @@ from app.api.deps import (
     SessionDep,
     TenantIdDep,
     UserIdDep,
+    chain_dependency_runners,
     require_jwt_user,
     require_roles,
 )
@@ -47,8 +48,12 @@ router = APIRouter()
 
 InviteManagerDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+        ),
+    ),
 ]
 
 

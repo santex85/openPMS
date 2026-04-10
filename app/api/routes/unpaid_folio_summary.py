@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import BOOKINGS_READ
 from app.core.rate_limit import limiter
 from app.schemas.bookings import BookingUnpaidFolioSummaryRead
@@ -17,15 +23,17 @@ router = APIRouter(tags=["bookings"])
 UnpaidFolioReadRolesDep = Annotated[
     None,
     Depends(
-        require_roles(
-            "owner",
-            "manager",
-            "viewer",
-            "housekeeper",
-            "receptionist",
+        chain_dependency_runners(
+            require_roles(
+                "owner",
+                "manager",
+                "viewer",
+                "housekeeper",
+                "receptionist",
+            ),
+            require_scopes(BOOKINGS_READ),
         ),
     ),
-    Depends(require_scopes(BOOKINGS_READ)),
 ]
 
 

@@ -4,7 +4,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import SessionDep, TenantIdDep, require_jwt_user, require_roles
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_jwt_user,
+    require_roles,
+)
 from app.core.rate_limit import limiter
 from app.schemas.audit import AuditLogItemRead
 from app.services.audit_service import list_audit_logs
@@ -13,8 +19,12 @@ router = APIRouter()
 
 AuditReadDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+        ),
+    ),
 ]
 
 

@@ -25,6 +25,8 @@ from app.models.rates.availability_ledger import AvailabilityLedger
 from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
 
+from tests.db_seed import disable_row_security_for_test_seed
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -42,6 +44,7 @@ async def _seed_repricing_scenario() -> dict[str, UUID]:
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
@@ -183,6 +186,7 @@ async def _seed_repricing_with_room_on_lines() -> dict[str, UUID]:
     phys_id: UUID | None = None
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},

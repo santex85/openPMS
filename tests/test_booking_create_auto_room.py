@@ -26,6 +26,8 @@ from app.models.rates.availability_ledger import AvailabilityLedger
 from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
 
+from tests.db_seed import disable_row_security_for_test_seed
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -46,6 +48,7 @@ def auto_room_ctx() -> dict[str, object]:
     async def _seed() -> dict[str, object]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text(
                         "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
@@ -60,6 +63,7 @@ def auto_room_ctx() -> dict[str, object]:
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=user_id,

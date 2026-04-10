@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import RATE_PLANS_READ, RATE_PLANS_WRITE
 from app.core.rate_limit import limiter
 from app.schemas.rate_plan import RatePlanCreate, RatePlanPatch, RatePlanRead
@@ -23,13 +29,21 @@ router = APIRouter()
 
 RatePlanReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(RATE_PLANS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(RATE_PLANS_READ),
+        ),
+    ),
 ]
 RatePlanWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(RATE_PLANS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(RATE_PLANS_WRITE),
+        ),
+    ),
 ]
 
 

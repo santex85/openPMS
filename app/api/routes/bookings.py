@@ -21,6 +21,7 @@ from app.api.deps import (
     OptionalUserIdWriteDep,
     SessionDep,
     TenantIdDep,
+    chain_dependency_runners,
     require_roles,
     require_scopes,
 )
@@ -91,13 +92,27 @@ router = APIRouter()
 
 BookingsReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "housekeeper", "receptionist")),
-    Depends(require_scopes(BOOKINGS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles(
+                "owner",
+                "manager",
+                "viewer",
+                "housekeeper",
+                "receptionist",
+            ),
+            require_scopes(BOOKINGS_READ),
+        ),
+    ),
 ]
 BookingsWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "receptionist")),
-    Depends(require_scopes(BOOKINGS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "receptionist"),
+            require_scopes(BOOKINGS_WRITE),
+        ),
+    ),
 ]
 
 
@@ -498,7 +513,8 @@ async def patch_booking_by_id(
     response_model=BookingCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
-@limiter.limit("30/minute")
+# High enough for concurrent overbooking load test (100+); still caps sustained abuse per key.
+@limiter.limit("200/minute")
 async def post_booking(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -557,4 +573,5 @@ async def post_booking(
         body.room_type_id,
         stay_nights,
     )
+    await session.commit()
     return out

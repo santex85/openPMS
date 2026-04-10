@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.api.deps import (
     SessionDep,
     TenantIdDep,
+    chain_dependency_runners,
     require_jwt_user,
     require_roles,
     require_scopes,
@@ -39,22 +40,34 @@ router = APIRouter()
 
 WebhooksReadDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(WEBHOOKS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+            require_scopes(WEBHOOKS_READ),
+        ),
+    ),
 ]
 WebhooksWriteDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(WEBHOOKS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+            require_scopes(WEBHOOKS_WRITE),
+        ),
+    ),
 ]
 
 ReencryptWebhookSecretsDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner")),
-    Depends(require_scopes(WEBHOOKS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner"),
+            require_scopes(WEBHOOKS_WRITE),
+        ),
+    ),
 ]
 
 

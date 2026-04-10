@@ -17,6 +17,8 @@ from app.models.core.property import Property
 from app.models.core.tenant import Tenant
 from app.services.api_key_service import hash_api_key
 
+from tests.db_seed import disable_row_security_for_test_seed
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -32,6 +34,7 @@ async def _seed_tenant_with_properties_scope(*, plaintext: str) -> tuple[str, st
     digest = hash_api_key(plaintext)
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},

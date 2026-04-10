@@ -60,6 +60,10 @@ class Booking(Base):
         PG_UUID(as_uuid=True),
         nullable=True,
     )
+    external_booking_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)

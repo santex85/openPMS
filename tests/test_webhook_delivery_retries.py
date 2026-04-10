@@ -10,10 +10,14 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.config import get_settings
+from app.core.webhook_secrets import encrypt_webhook_secret
 from app.models.core.tenant import Tenant
 from app.models.integrations.webhook_delivery_log import WebhookDeliveryLog
 from app.models.integrations.webhook_subscription import WebhookSubscription
 from app.services.webhook_delivery_engine import deliver_to_subscription
+
+from tests.db_seed import disable_row_security_for_test_seed
 
 
 def _database_url() -> str | None:
@@ -30,9 +34,12 @@ async def test_deliver_to_subscription_logs_three_attempts_before_success() -> N
     sub_id = uuid4()
     engine = create_async_engine(url)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    settings = get_settings()
+    enc_secret = encrypt_webhook_secret(settings, "test-secret-key-for-hmac")
 
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
@@ -49,9 +56,9 @@ async def test_deliver_to_subscription_logs_three_attempts_before_success() -> N
                 WebhookSubscription(
                     id=sub_id,
                     tenant_id=tenant_id,
-                    url="https://example.test/hook",
+                    url="https://example.com/hook",
                     events=["booking.created"],
-                    secret="test-secret-key-for-hmac",
+                    secret=enc_secret,
                     is_active=True,
                 ),
             )
@@ -72,6 +79,7 @@ async def test_deliver_to_subscription_logs_three_attempts_before_success() -> N
 
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
@@ -134,9 +142,12 @@ async def test_deliver_first_success_writes_single_log_with_200() -> None:
     sub_id = uuid4()
     engine = create_async_engine(url)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    settings = get_settings()
+    enc_secret = encrypt_webhook_secret(settings, "whsec_plain_signing_secret_test")
 
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
@@ -153,9 +164,9 @@ async def test_deliver_first_success_writes_single_log_with_200() -> None:
                 WebhookSubscription(
                     id=sub_id,
                     tenant_id=tenant_id,
-                    url="https://example.test/hook-ok",
+                    url="https://example.com/hook-ok",
                     events=["booking.created"],
-                    secret="plain-signing-secret",
+                    secret=enc_secret,
                     is_active=True,
                 ),
             )

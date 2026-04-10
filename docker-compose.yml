@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=200"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-openpms}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openpms}
@@ -39,6 +40,8 @@ services:
       - "8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD:-openpms}@db:5432/${POSTGRES_DB:-openpms}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
       # HS256: set JWT_SECRET in .env (min 32 chars). No predictable compose default.
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}

@@ -5,7 +5,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_jwt_user, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_jwt_user,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import CHANNEX_READ, CHANNEX_WRITE
 from app.schemas.channex import (
     ChannexConnectRequest,
@@ -28,15 +35,23 @@ router = APIRouter()
 
 ChannexReadDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(CHANNEX_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+            require_scopes(CHANNEX_READ),
+        ),
+    ),
 ]
 ChannexWriteDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(CHANNEX_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+            require_scopes(CHANNEX_WRITE),
+        ),
+    ),
 ]
 
 

@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import ROOM_TYPES_READ, ROOM_TYPES_WRITE
 from app.schemas.room_type import RoomTypeCreate, RoomTypePatch, RoomTypeRead
 from app.services import room_type_service
@@ -16,13 +22,21 @@ router = APIRouter()
 
 RoomTypeReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(ROOM_TYPES_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(ROOM_TYPES_READ),
+        ),
+    ),
 ]
 RoomTypeWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(ROOM_TYPES_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(ROOM_TYPES_WRITE),
+        ),
+    ),
 ]
 
 

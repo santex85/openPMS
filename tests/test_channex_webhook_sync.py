@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import clear_settings_cache, get_settings
 from app.core.security import hash_password
@@ -30,8 +30,11 @@ from app.models.integrations.channex_room_type_map import ChannexRoomTypeMap
 from app.models.integrations.channex_webhook_log import ChannexWebhookLog
 from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
+from app.integrations.channex.client import ChannexClient as ChannexClientImpl
 from app.tasks.channex_ari_sync import _run_channex_full_ari_sync
 from app.tasks.channex_webhook_task import _run_channex_process_webhook
+
+from tests.db_seed import disable_row_security_for_test_seed
 
 
 def _database_url() -> str | None:
@@ -54,6 +57,7 @@ async def _seed_channex_property(
 
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
@@ -66,6 +70,7 @@ async def _seed_channex_property(
                     status="active",
                 ),
             )
+            await session.flush()
             session.add(
                 User(
                     id=owner_id,
@@ -143,6 +148,10 @@ async def _seed_channex_property(
             )
             link_id = link.id
             property_id = prop.id
+            openpms_room_type_id = rt.id
+            openpms_rate_plan_id = rp.id
+            cx_room_type_id = rtm.channex_room_type_id
+            cx_rate_plan_id = rpm.channex_rate_plan_id
 
     return {
         "tenant_id": tenant_id,
@@ -152,55 +161,72 @@ async def _seed_channex_property(
         "cx_property_id": cx_property_id,
         "room_type_map_id": rtm.id,
         "rate_plan_map_id": rpm.id,
+        "room_type_id": openpms_room_type_id,
+        "rate_plan_id": openpms_rate_plan_id,
+        "channex_room_type_id": cx_room_type_id,
+        "channex_rate_plan_id": cx_rate_plan_id,
     }
 
 
 @pytest.fixture
 def channex_active_ctx(
-    db_engine: object,
     channex_encrypt_env: None,
 ) -> dict[str, object]:
-    if not _database_url():
+    """Seed on a disposable engine so ``asyncio.run`` does not bind ``db_engine`` to a dead loop."""
+    url = _database_url()
+    if not url:
         pytest.skip("Set DATABASE_URL for integration tests")
-    return asyncio.run(
-        _seed_channex_property(
-            db_engine,
-            status="active",
-            channex_webhook_id=None,
-        ),
-    )
+    eng = create_async_engine(url)
+    try:
+        return asyncio.run(
+            _seed_channex_property(
+                eng,
+                status="active",
+                channex_webhook_id=None,
+            ),
+        )
+    finally:
+        asyncio.run(eng.dispose())
 
 
 @pytest.fixture
 def channex_pending_ctx(
-    db_engine: object,
     channex_encrypt_env: None,
 ) -> dict[str, object]:
-    if not _database_url():
+    url = _database_url()
+    if not url:
         pytest.skip("Set DATABASE_URL for integration tests")
-    return asyncio.run(
-        _seed_channex_property(
-            db_engine,
-            status="pending",
-            channex_webhook_id=None,
-        ),
-    )
+    eng = create_async_engine(url)
+    try:
+        return asyncio.run(
+            _seed_channex_property(
+                eng,
+                status="pending",
+                channex_webhook_id=None,
+            ),
+        )
+    finally:
+        asyncio.run(eng.dispose())
 
 
 @pytest.fixture
 def channex_with_webhook_ctx(
-    db_engine: object,
     channex_encrypt_env: None,
 ) -> dict[str, object]:
-    if not _database_url():
+    url = _database_url()
+    if not url:
         pytest.skip("Set DATABASE_URL for integration tests")
-    return asyncio.run(
-        _seed_channex_property(
-            db_engine,
-            status="active",
-            channex_webhook_id=str(uuid4()),
-        ),
-    )
+    eng = create_async_engine(url)
+    try:
+        return asyncio.run(
+            _seed_channex_property(
+                eng,
+                status="active",
+                channex_webhook_id=str(uuid4()),
+            ),
+        )
+    finally:
+        asyncio.run(eng.dispose())
 
 
 @pytest.fixture
@@ -306,7 +332,6 @@ def test_activate_sets_webhook_id(
     client: object,
     auth_headers: object,
     channex_pending_ctx: dict[str, object],
-    db_engine: object,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from starlette.testclient import TestClient
@@ -333,6 +358,7 @@ def test_activate_sets_webhook_id(
         inst.create_webhook = AsyncMock(
             return_value={"data": {"id": webhook_uuid, "type": "webhook"}},
         )
+        MockCx.extract_created_resource_id = ChannexClientImpl.extract_created_resource_id
 
         res = client.post(
             "/channex/activate",
@@ -344,23 +370,41 @@ def test_activate_sets_webhook_id(
 
     mock_delay.assert_called_once_with(str(tid), str(pid))
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = _database_url()
+    assert url
 
     async def _read() -> None:
-        async with factory() as session:
-            link = await session.get(ChannexPropertyLink, link_id)
-            assert link is not None
-            assert link.status == "active"
-            assert link.channex_webhook_id == webhook_uuid
+        eng = create_async_engine(url)
+        try:
+            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory2() as session:
+                link = await session.get(ChannexPropertyLink, link_id)
+                assert link is not None
+                assert link.status == "active"
+                assert link.channex_webhook_id == webhook_uuid
+        finally:
+            await eng.dispose()
 
     asyncio.run(_read())
+
+    ar = client.get(
+        "/audit-log",
+        headers=headers,
+        params={"entity_type": "channex_property_link", "limit": 20},
+    )
+    assert ar.status_code == 200, ar.text
+    rows = ar.json()
+    assert any(e["action"] == "channex.activate" for e in rows)
+    assert all(e["entity_type"] == "channex_property_link" for e in rows)
+    assert any(
+        e["action"] == "channex.activate" and e["user_id"] == str(oid) for e in rows
+    )
 
 
 def test_disconnect_calls_delete_webhook(
     client: object,
     auth_headers: object,
     channex_with_webhook_ctx: dict[str, object],
-    db_engine: object,
 ) -> None:
     from starlette.testclient import TestClient
 
@@ -381,14 +425,22 @@ def test_disconnect_calls_delete_webhook(
         assert res.status_code == 204, res.text
         inst.delete_webhook.assert_awaited()
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = _database_url()
+    assert url
 
     async def _gone() -> None:
-        async with factory() as session:
-            res = await session.execute(
-                select(ChannexPropertyLink).where(ChannexPropertyLink.property_id == pid),
-            )
-            assert res.scalar_one_or_none() is None
+        eng = create_async_engine(url)
+        try:
+            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory2() as session:
+                res = await session.execute(
+                    select(ChannexPropertyLink).where(
+                        ChannexPropertyLink.property_id == pid,
+                    ),
+                )
+                assert res.scalar_one_or_none() is None
+        finally:
+            await eng.dispose()
 
     asyncio.run(_gone())
 
@@ -397,7 +449,6 @@ def test_inbound_webhook_persists_log_without_auth(
     client: object,
     channex_active_ctx: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
-    db_engine: object,
 ) -> None:
     from starlette.testclient import TestClient
 
@@ -424,20 +475,26 @@ def test_inbound_webhook_persists_log_without_auth(
     assert res.json().get("status") == "ok"
     mock_delay.assert_called_once()
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = _database_url()
+    assert url
 
     async def _check() -> None:
-        async with factory() as session:
-            q = await session.execute(
-                select(ChannexWebhookLog)
-                .where(ChannexWebhookLog.payload.contains({"property_id": cx_pid}))
-                .order_by(ChannexWebhookLog.created_at.desc())
-                .limit(1),
-            )
-            row = q.scalars().first()
-            assert row is not None
-            assert row.event_type == "ari"
-            assert row.payload.get("property_id") == cx_pid
+        eng = create_async_engine(url)
+        try:
+            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory2() as session:
+                q = await session.execute(
+                    select(ChannexWebhookLog)
+                    .where(ChannexWebhookLog.payload.contains({"property_id": cx_pid}))
+                    .order_by(ChannexWebhookLog.created_at.desc())
+                    .limit(1),
+                )
+                row = q.scalars().first()
+                assert row is not None
+                assert row.event_type == "ari"
+                assert row.payload.get("property_id") == cx_pid
+        finally:
+            await eng.dispose()
 
     asyncio.run(_check())
 
@@ -509,6 +566,7 @@ async def test_process_webhook_marks_ari_processed(
     log_id: UUID
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tid)},

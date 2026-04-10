@@ -10,6 +10,7 @@ from app.api.deps import (
     OptionalUserIdWriteDep,
     SessionDep,
     TenantIdDep,
+    chain_dependency_runners,
     require_roles,
     require_scopes,
 )
@@ -31,13 +32,21 @@ router = APIRouter(prefix="/housekeeping", tags=["housekeeping"])
 
 HousekeepingReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "housekeeper", "receptionist")),
-    Depends(require_scopes(HOUSEKEEPING_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "housekeeper", "receptionist"),
+            require_scopes(HOUSEKEEPING_READ),
+        ),
+    ),
 ]
 HousekeepingWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "housekeeper")),
-    Depends(require_scopes(HOUSEKEEPING_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "housekeeper"),
+            require_scopes(HOUSEKEEPING_WRITE),
+        ),
+    ),
 ]
 
 

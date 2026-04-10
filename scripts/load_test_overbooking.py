@@ -259,10 +259,10 @@ async def _seed_single_villa_scenario(
 ) -> dict:
     engine = create_async_engine(database_url)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    check_in = date.today() + timedelta(days=30)
-    check_out = check_in + timedelta(days=1)
 
     prop_id = rt_id = rp_id = None
+    check_in: date | None = None
+    check_out: date | None = None
     async with factory() as session:
         async with session.begin():
             await session.execute(
@@ -298,11 +298,15 @@ async def _seed_single_villa_scenario(
             session.add(rt)
             await session.flush()
             total_rooms = await count_rooms_for_room_type(session, tenant_id, rt.id)
+            ledger_start = date.today()
+            check_in = ledger_start + timedelta(days=30)
+            check_out = check_in + timedelta(days=1)
             await seed_empty_availability_ledger_year_forward(
                 session,
                 tenant_id=tenant_id,
                 room_type_id=rt.id,
                 total_rooms=total_rooms,
+                start_date=ledger_start,
             )
             await session.execute(
                 update(AvailabilityLedger)
@@ -335,6 +339,7 @@ async def _seed_single_villa_scenario(
 
     await engine.dispose()
 
+    assert check_in is not None and check_out is not None
     return {
         "tenant_id": str(tenant_id),
         "property_id": str(prop_id),
@@ -406,7 +411,7 @@ async def _run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    print("Overbooking guard: OK (1 success, 99 conflicts).")
+    print(f"Overbooking guard: OK (1 success, {args.concurrency - 1} conflicts).")
     return 0
 
 

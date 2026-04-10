@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomCreate, RoomPatch, RoomRead
 from app.services.room_assignable_service import list_assignable_rooms_for_stay
@@ -28,13 +34,27 @@ router = APIRouter()
 
 RoomReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist", "housekeeper")),
-    Depends(require_scopes(ROOMS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles(
+                "owner",
+                "manager",
+                "viewer",
+                "receptionist",
+                "housekeeper",
+            ),
+            require_scopes(ROOMS_READ),
+        ),
+    ),
 ]
 RoomWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(ROOMS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(ROOMS_WRITE),
+        ),
+    ),
 ]
 
 

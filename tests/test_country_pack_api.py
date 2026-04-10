@@ -24,6 +24,8 @@ from app.models.core.room_type import RoomType
 from app.models.core.tenant import Tenant
 from decimal import Decimal
 
+from tests.db_seed import disable_row_security_for_test_seed
+
 
 def _database_url() -> str | None:
     return os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
@@ -39,6 +41,7 @@ def pack_api_ctx(db_engine: object, jwt_secret: str) -> dict[str, object]:
     async def _seed() -> dict[str, object]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text(
                         "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
@@ -53,6 +56,7 @@ def pack_api_ctx(db_engine: object, jwt_secret: str) -> dict[str, object]:
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,
@@ -150,6 +154,7 @@ def pack_api_no_booking_ctx(db_engine: object, jwt_secret: str) -> dict[str, obj
     async def _seed() -> dict[str, object]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text(
                         "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
@@ -164,6 +169,7 @@ def pack_api_no_booking_ctx(db_engine: object, jwt_secret: str) -> dict[str, obj
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,
@@ -317,6 +323,7 @@ def test_checkin_blocked_when_extension_requires_passport(
     async def _seed() -> dict[str, object]:
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text(
                         "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
@@ -331,6 +338,7 @@ def test_checkin_blocked_when_extension_requires_passport(
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,

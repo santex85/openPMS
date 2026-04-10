@@ -28,6 +28,7 @@ from app.schemas.bookings import (
     NightlyPriceLine,
 )
 from app.services.availability_lock import (
+    claim_availability_for_new_booking,
     decrement_booked_rooms,
     increment_booked_rooms,
     lock_and_validate_availability,
@@ -266,14 +267,13 @@ async def create_booking(
         body.check_out,
     )
 
-    ledger_rows = await lock_and_validate_availability(
+    await claim_availability_for_new_booking(
         session,
         tenant_id,
         body.room_type_id,
         nights,
         rooms_to_book=1,
     )
-    increment_booked_rooms(ledger_rows, 1)
 
     guest, guest_merged = await _get_or_create_guest_for_booking(
         session,

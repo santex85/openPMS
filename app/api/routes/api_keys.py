@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.api.deps import (
     SessionDep,
     TenantIdDep,
+    chain_dependency_runners,
     require_jwt_user,
     require_roles,
 )
@@ -31,8 +32,12 @@ router = APIRouter()
 
 ApiKeysManageDep = Annotated[
     None,
-    Depends(require_jwt_user()),
-    Depends(require_roles("owner", "manager")),
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
+            require_roles("owner", "manager"),
+        ),
+    ),
 ]
 
 

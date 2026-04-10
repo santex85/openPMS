@@ -403,7 +403,8 @@ class ChannexClient:
         r = await self._request("POST", "ari_upload", json_body={"values": values})
         return cast(dict[str, Any], r.json())
 
-    async def get_booking_revision(self, revision_id: str) -> ChannexBookingRevisionPayload:
+    async def get_booking_revision_raw(self, revision_id: str) -> dict[str, Any]:
+        """Flattened attributes dict from GET booking_revisions/{id} (for DB + Pydantic)."""
         r = await self._request("GET", f"booking_revisions/{revision_id}")
         payload = r.json()
         raw_list = self._unwrap_items(payload)
@@ -414,6 +415,10 @@ class ChannexClient:
             flat = self._attributes_obj(payload)
         else:
             flat = {}
+        return flat
+
+    async def get_booking_revision(self, revision_id: str) -> ChannexBookingRevisionPayload:
+        flat = await self.get_booking_revision_raw(revision_id)
         return ChannexBookingRevisionPayload.model_validate(flat)
 
     async def acknowledge_revision(self, revision_id: str) -> dict[str, Any]:

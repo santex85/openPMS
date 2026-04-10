@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -50,6 +50,22 @@ OptionalUserIdWriteDep = Annotated[
     UUID | None,
     Depends(get_optional_user_id_for_audit),
 ]
+
+
+def chain_dependency_runners(
+    *runners: Callable[[Request], Awaitable[None]],
+) -> Callable[[Request], Awaitable[None]]:
+    """
+    FastAPI only honors the last Depends() inside Annotated[None, Depends(...), ...].
+    Compose multiple security runners (JWT / roles / scopes) into a single dependency.
+    """
+    seq = tuple(runners)
+
+    async def _combined(request: Request) -> None:
+        for runner in seq:
+            await runner(request)
+
+    return _combined
 
 
 def require_jwt_user() -> Callable:
@@ -123,12 +139,18 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
 
     factory = request.app.state.async_session_factory
     async with factory() as session:
-        async with session.begin():
-            await session.execute(
-                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                {"tid": str(tenant_id)},
-            )
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+            {"tid": str(tenant_id)},
+        )
+        try:
             yield session
+        except Exception:
+            await session.rollback()
+            raise
+        else:
+            if session.in_transaction():
+                await session.commit()
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]

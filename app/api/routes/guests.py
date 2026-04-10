@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.rate_limit import limiter
 from app.core.api_scopes import GUESTS_READ, GUESTS_WRITE
 from app.schemas.guest import (
@@ -28,13 +34,21 @@ router = APIRouter()
 
 GuestReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(GUESTS_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(GUESTS_READ),
+        ),
+    ),
 ]
 GuestWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "receptionist")),
-    Depends(require_scopes(GUESTS_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "receptionist"),
+            require_scopes(GUESTS_WRITE),
+        ),
+    ),
 ]
 
 

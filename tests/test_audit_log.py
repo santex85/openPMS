@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-
 def test_audit_log_pagination(
     client,
     smoke_scenario: dict[str, UUID],
@@ -77,44 +76,10 @@ def test_audit_log_manager_can_read(
     client,
     smoke_scenario: dict[str, UUID],
     auth_headers_user,
-    db_engine,
 ) -> None:
     """Manager role can list audit log (requires JWT user in tenant with manager role)."""
-    import asyncio
-    from uuid import uuid4
-
-    from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from app.core.security import hash_password
-    from app.models.auth.user import User
-
     tid = smoke_scenario["tenant_id"]
-    mid = uuid4()
-
-    async def _add_manager() -> None:
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
-        async with factory() as session:
-            async with session.begin():
-                await session.execute(
-                    text(
-                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
-                    ),
-                    {"tid": str(tid)},
-                )
-                session.add(
-                    User(
-                        id=mid,
-                        tenant_id=tid,
-                        email="mgr.audit@example.com",
-                        password_hash=hash_password("secret"),
-                        full_name="Mgr",
-                        role="manager",
-                    ),
-                )
-
-    asyncio.run(_add_manager())
-
+    mid = smoke_scenario["manager_id"]
     h = auth_headers_user(tid, mid, role="manager")
     r = client.get("/audit-log", headers=h, params={"limit": 5})
     assert r.status_code == 200

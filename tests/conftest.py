@@ -22,10 +22,13 @@ from app.models.rates.rate_plan import RatePlan
 
 os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-key-minimum-32-characters!!")
 os.environ.setdefault("ALLOW_PUBLIC_REGISTRATION", "true")
+os.environ.setdefault("REFRESH_COOKIE_SECURE", "false")
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test",
 )
+
+pytest_plugins = ("tests.test_channex_webhook_sync",)
 
 from app.main import app
 from app.models.bookings.booking import Booking
@@ -37,6 +40,8 @@ from app.models.core.room_type import RoomType
 from app.models.core.tenant import Tenant
 
 from app.core.config import clear_settings_cache
+
+from tests.db_seed import disable_row_security_for_test_seed
 
 
 @pytest.fixture(autouse=True)
@@ -145,11 +150,13 @@ def smoke_scenario(db_engine: object) -> dict[str, UUID]:
     async def _seed() -> dict[str, UUID]:
         tenant_id = uuid4()
         owner_id = uuid4()
+        manager_id = uuid4()
         factory = async_sessionmaker(
             db_engine, class_=AsyncSession, expire_on_commit=False
         )
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 await session.execute(
                     text(
                         "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
@@ -173,6 +180,16 @@ def smoke_scenario(db_engine: object) -> dict[str, UUID]:
                         password_hash=hash_password("secret"),
                         full_name="Owner",
                         role="owner",
+                    ),
+                )
+                session.add(
+                    User(
+                        id=manager_id,
+                        tenant_id=tenant_id,
+                        email="manager@smoke.example.com",
+                        password_hash=hash_password("secret"),
+                        full_name="Manager",
+                        role="manager",
                     ),
                 )
                 prop = Property(
@@ -229,6 +246,7 @@ def smoke_scenario(db_engine: object) -> dict[str, UUID]:
         return {
             "tenant_id": tenant_id,
             "owner_id": owner_id,
+            "manager_id": manager_id,
             "property_id": property_id,
             "room_id": room_id,
             "room_type_id": room_type_id,
@@ -252,6 +270,7 @@ def tenant_isolation_booking_scenario(db_engine):
         )
         async with factory() as session:
             async with session.begin():
+                await disable_row_security_for_test_seed(session)
                 for tid, label in ((tenant_a, "TenantA"), (tenant_b, "TenantB")):
                     await session.execute(
                         text(
@@ -326,18 +345,20 @@ def tenant_isolation_booking_scenario(db_engine):
                 await session.flush()
                 booking_id = booking.id
                 property_id = prop.id
+                guest_id = guest.id
 
         return {
             "tenant_a": tenant_a,
             "tenant_b": tenant_b,
             "booking_id": booking_id,
             "property_id": property_id,
+            "guest_id": guest_id,
         }
 
     return asyncio.run(_seed())
 
 
-async def _seed_folio_scenario() -> dict[str, object]:
+async def _seed_folio_scenario(*, booking_status: str = "checked_in") -> dict[str, object]:
     tenant_id = uuid4()
     user_id = uuid4()
     url = _database_url()
@@ -349,6 +370,7 @@ async def _seed_folio_scenario() -> dict[str, object]:
 
     async with factory() as session:
         async with session.begin():
+            await disable_row_security_for_test_seed(session)
             await session.execute(
                 text(
                     "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
@@ -435,7 +457,7 @@ async def _seed_folio_scenario() -> dict[str, object]:
                 property_id=prop.id,
                 guest_id=guest.id,
                 rate_plan_id=rate_plan.id,
-                status="confirmed",
+                status=booking_status,
                 source="test",
                 total_amount=Decimal("150.00"),
             )
@@ -479,4 +501,12 @@ async def _seed_folio_scenario() -> dict[str, object]:
 def folio_scenario() -> dict[str, object]:
     if not _database_url():
         pytest.skip("Set DATABASE_URL for integration tests")
-    return asyncio.run(_seed_folio_scenario())
+    return asyncio.run(_seed_folio_scenario(booking_status="checked_in"))
+
+
+@pytest.fixture
+def folio_scenario_confirmed() -> dict[str, object]:
+    """Booking left *confirmed* for FSM tests that forbid skip to checked_out."""
+    if not _database_url():
+        pytest.skip("Set DATABASE_URL for integration tests")
+    return asyncio.run(_seed_folio_scenario(booking_status="confirmed"))

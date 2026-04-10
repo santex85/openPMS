@@ -5,7 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.deps import SessionDep, TenantIdDep, require_roles, require_scopes
+from app.api.deps import (
+    SessionDep,
+    TenantIdDep,
+    chain_dependency_runners,
+    require_roles,
+    require_scopes,
+)
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.country_pack import PropertyLockStatusRead
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
@@ -17,13 +23,21 @@ router = APIRouter()
 
 PropertyReadRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager", "viewer", "receptionist")),
-    Depends(require_scopes(PROPERTIES_READ)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager", "viewer", "receptionist"),
+            require_scopes(PROPERTIES_READ),
+        ),
+    ),
 ]
 PropertyWriteRolesDep = Annotated[
     None,
-    Depends(require_roles("owner", "manager")),
-    Depends(require_scopes(PROPERTIES_WRITE)),
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(PROPERTIES_WRITE),
+        ),
+    ),
 ]
 
 

@@ -6,3 +6,4 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
