@@ -264,6 +264,9 @@ async def charge_booking(
         )
         session.add(fail_row)
         await session.flush()
+        # Persist failed charge before raising: get_db rolls back the session on any
+        # exception from the route, which would otherwise drop this audit row.
+        await session.commit()
         raise StripePaymentError(msg, status_code=422) from exc
 
     pi_id = str(getattr(pi, "id", "") or "")

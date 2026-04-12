@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 import stripe
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import clear_settings_cache, get_settings
 from app.core.security import hash_password
@@ -36,8 +36,13 @@ def _pm_card_retrieve() -> SimpleNamespace:
 
 
 def _seed_stripe_payment_scenario(db_engine: object) -> dict[str, UUID]:
-    """Tenant + owner + property + StripeConnection + guest + booking."""
+    """Tenant + owner + property + StripeConnection + guest + booking.
 
+    Uses a disposable async engine per call so asyncio.run does not bind the
+    shared ``db_engine`` fixture to a closed event loop (see channex webhook tests).
+    """
+
+    _ = db_engine  # fixture keeps DATABASE_URL in env; avoid sharing pool across loops
     url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL required")
@@ -46,9 +51,10 @@ def _seed_stripe_payment_scenario(db_engine: object) -> dict[str, UUID]:
     owner_id = uuid4()
     clear_settings_cache()
     settings = get_settings()
+    eng = create_async_engine(url)
 
     async def _inner() -> dict[str, UUID]:
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
@@ -64,6 +70,7 @@ def _seed_stripe_payment_scenario(db_engine: object) -> dict[str, UUID]:
                         status="active",
                     ),
                 )
+                await session.flush()
                 session.add(
                     User(
                         id=owner_id,
@@ -126,6 +133,7 @@ def _seed_stripe_payment_scenario(db_engine: object) -> dict[str, UUID]:
     try:
         return asyncio.run(_inner())
     finally:
+        asyncio.run(eng.dispose())
         clear_settings_cache()
 
 
@@ -259,27 +267,33 @@ def test_charge_success_folio_stripe_source(client, db_engine, auth_headers_user
     assert r.json()["status"] == "succeeded"
     assert r.json()["stripe_charge_id"] == "pi_test_ok_1"
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    assert url
+    eng = create_async_engine(url)
+    try:
 
-    async def _check_folio() -> None:
-        async with factory() as session:
-            await session.execute(
-                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                {"tid": str(tid)},
-            )
-            rows = (
+        async def _check_folio() -> None:
+            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory() as session:
                 await session.execute(
-                    select(FolioTransaction).where(
-                        FolioTransaction.tenant_id == tid,
-                        FolioTransaction.booking_id == bid,
-                    ),
+                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    {"tid": str(tid)},
                 )
-            ).scalars().all()
-            assert len(rows) == 1
-            assert rows[0].source_channel == "stripe"
-            assert rows[0].transaction_type == "Payment"
+                rows = (
+                    await session.execute(
+                        select(FolioTransaction).where(
+                            FolioTransaction.tenant_id == tid,
+                            FolioTransaction.booking_id == bid,
+                        ),
+                    )
+                ).scalars().all()
+                assert len(rows) == 1
+                assert rows[0].source_channel == "stripe"
+                assert rows[0].transaction_type == "Payment"
 
-    asyncio.run(_check_folio())
+        asyncio.run(_check_folio())
+    finally:
+        asyncio.run(eng.dispose())
 
 
 def test_charge_stripe_error_no_folio(client, db_engine, auth_headers_user) -> None:
@@ -312,29 +326,35 @@ def test_charge_stripe_error_no_folio(client, db_engine, auth_headers_user) -> N
         )
     assert r.status_code == 422
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    assert url
+    eng = create_async_engine(url)
+    try:
 
-    async def _check() -> None:
-        async with factory() as session:
-            await session.execute(
-                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                {"tid": str(tid)},
-            )
-            folio_n = (
+        async def _check() -> None:
+            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory() as session:
                 await session.execute(
-                    select(FolioTransaction).where(FolioTransaction.booking_id == bid),
+                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    {"tid": str(tid)},
                 )
-            ).scalars().all()
-            assert len(folio_n) == 0
-            ch = (
-                await session.execute(
-                    select(StripeCharge).where(StripeCharge.booking_id == bid),
-                )
-            ).scalars().first()
-            assert ch is not None
-            assert ch.status == "failed"
+                folio_n = (
+                    await session.execute(
+                        select(FolioTransaction).where(FolioTransaction.booking_id == bid),
+                    )
+                ).scalars().all()
+                assert len(folio_n) == 0
+                ch = (
+                    await session.execute(
+                        select(StripeCharge).where(StripeCharge.booking_id == bid),
+                    )
+                ).scalars().first()
+                assert ch is not None
+                assert ch.status == "failed"
 
-    asyncio.run(_check())
+        asyncio.run(_check())
+    finally:
+        asyncio.run(eng.dispose())
 
 
 def test_charge_unknown_pm_row(client, db_engine, auth_headers_user) -> None:
@@ -514,28 +534,34 @@ def test_charge_other_tenant_booking_404(
     bid_a: UUID = tenant_isolation_booking_scenario["booking_id"]  # type: ignore[assignment]
     oid_b = uuid4()
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    assert url
+    eng = create_async_engine(url)
+    try:
 
-    async def _add_owner_b() -> None:
-        async with factory() as session:
-            async with session.begin():
-                await disable_row_security_for_test_seed(session)
-                await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                    {"tid": str(tid_b)},
-                )
-                session.add(
-                    User(
-                        id=oid_b,
-                        tenant_id=tid_b,
-                        email=f"iso{oid_b.hex[:6]}@example.com",
-                        password_hash=hash_password("x"),
-                        full_name="B Owner",
-                        role="owner",
-                    ),
-                )
+        async def _add_owner_b() -> None:
+            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory() as session:
+                async with session.begin():
+                    await disable_row_security_for_test_seed(session)
+                    await session.execute(
+                        text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                        {"tid": str(tid_b)},
+                    )
+                    session.add(
+                        User(
+                            id=oid_b,
+                            tenant_id=tid_b,
+                            email=f"iso{oid_b.hex[:6]}@example.com",
+                            password_hash=hash_password("x"),
+                            full_name="B Owner",
+                            role="owner",
+                        ),
+                    )
 
-    asyncio.run(_add_owner_b())
+        asyncio.run(_add_owner_b())
+    finally:
+        asyncio.run(eng.dispose())
 
     h_b = auth_headers_user(tid_b, oid_b, role="owner")
     r = client.post(
@@ -556,28 +582,34 @@ def test_refund_requires_owner_not_manager(client, db_engine, auth_headers_user)
     bid = scenario["booking_id"]
     mid = uuid4()
 
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    assert url
+    eng = create_async_engine(url)
+    try:
 
-    async def _add_manager() -> None:
-        async with factory() as session:
-            async with session.begin():
-                await disable_row_security_for_test_seed(session)
-                await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                    {"tid": str(tid)},
-                )
-                session.add(
-                    User(
-                        id=mid,
-                        tenant_id=tid,
-                        email=f"m{mid.hex[:8]}@example.com",
-                        password_hash=hash_password("x"),
-                        full_name="Mgr",
-                        role="manager",
-                    ),
-                )
+        async def _add_manager() -> None:
+            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with factory() as session:
+                async with session.begin():
+                    await disable_row_security_for_test_seed(session)
+                    await session.execute(
+                        text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                        {"tid": str(tid)},
+                    )
+                    session.add(
+                        User(
+                            id=mid,
+                            tenant_id=tid,
+                            email=f"m{mid.hex[:8]}@example.com",
+                            password_hash=hash_password("x"),
+                            full_name="Mgr",
+                            role="manager",
+                        ),
+                    )
 
-    asyncio.run(_add_manager())
+        asyncio.run(_add_manager())
+    finally:
+        asyncio.run(eng.dispose())
 
     with patch(
         "app.services.stripe_payment_service.stripe.PaymentMethod.retrieve",
