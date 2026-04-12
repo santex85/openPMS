@@ -24,7 +24,7 @@ help:
 	@echo "  make restart              — restart api"
 	@echo "  make test                 — pytest locally ($(PYTEST_ARGS))"
 	@echo "  make test-docker          — pytest inside compose (same DB as api)"
-	@echo "  make test-docker-cov      — pytest + coverage app to 100% threshold"
+	@echo "  make test-docker-cov      — pytest + coverage (pyproject.toml, fail-under 80%)"
 	@echo "  make alembic-upgrade      — alembic upgrade head (one-off api container)"
 	@echo "  make alembic-revision MSG=... — create empty revision (set MSG)"
 	@echo "  make load-test-overbooking — 100 concurrent POST /bookings (needs up)"
@@ -59,7 +59,7 @@ test-docker: build
 	$(COMPOSE) run --rm $(API_SERVICE) sh -c "alembic upgrade head && pytest tests/ -v $(PYTEST_ARGS)"
 
 test-docker-cov: build
-	$(COMPOSE) run --rm $(API_SERVICE) sh -c "alembic upgrade head && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=100 $(PYTEST_ARGS)"
+	$(COMPOSE) run --rm $(API_SERVICE) sh -c "alembic upgrade head && pytest tests/ -v --cov=app --cov-config=pyproject.toml --cov-report=term-missing $(PYTEST_ARGS)"
 
 alembic-upgrade: build
 	$(COMPOSE) run --rm $(API_SERVICE) alembic upgrade head

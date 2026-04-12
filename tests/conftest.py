@@ -28,7 +28,10 @@ os.environ.setdefault(
     "postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test",
 )
 
-pytest_plugins = ("tests.test_channex_webhook_sync",)
+pytest_plugins = (
+    "tests.test_channex_webhook_sync",
+    "tests.test_booking_room_conflict",
+)
 
 from app.main import app
 from app.models.bookings.booking import Booking

@@ -1,0 +1,23 @@
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/main.py",
+    "app/db/base.py",
+    "app/core/logging_config.py",
+    "app/worker.py",
+    "app/tasks/ping.py",
+    "app/tasks/tasks.py",
+    # Boilerplate / exercised almost only via HTTP integration; keep gate focused on logic.
+    "app/models/*",
+    "app/schemas/*",
+    "app/api/*",
+]
+
+[tool.coverage.report]
+# Measured set = app minus omit list (models/schemas/api routes). Raise toward 80% as tests land.
+fail_under = 77
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

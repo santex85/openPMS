@@ -7,3 +7,4 @@ services:
     volumes:
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro

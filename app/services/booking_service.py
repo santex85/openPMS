@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import object_session, selectinload
 
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
@@ -128,7 +128,8 @@ async def _get_or_create_guest_for_booking(
             async with session.begin_nested():
                 await session.flush()
         except IntegrityError:
-            session.expunge(guest)
+            if object_session(guest) is session:
+                session.expunge(guest)
             raise InvalidBookingContextError(
                 "guest with this email already exists for this tenant",
             ) from None
@@ -158,7 +159,8 @@ async def _get_or_create_guest_for_booking(
         async with session.begin_nested():
             await session.flush()
     except IntegrityError:
-        session.expunge(guest)
+        if object_session(guest) is session:
+            session.expunge(guest)
         again = await session.scalar(
             select(Guest).where(
                 Guest.tenant_id == tenant_id,

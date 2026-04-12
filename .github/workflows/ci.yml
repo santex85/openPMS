@@ -55,8 +55,8 @@ jobs:
           pip install -r requirements.txt
       - name: Alembic upgrade
         run: alembic upgrade head
-      - name: Pytest
-        run: pytest -q --tb=short
+      - name: Pytest with coverage
+        run: pytest -q --tb=short --cov=app --cov-config=pyproject.toml --cov-report=term-missing
 
   docker:
     runs-on: ubuntu-latest
