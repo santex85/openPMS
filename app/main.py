@@ -40,6 +40,7 @@ from app.api.routes import (
     rate_plans,
     room_types,
     rooms,
+    stripe_connect,
     unpaid_folio_summary,
     webhooks,
 )
@@ -328,6 +329,10 @@ def create_app() -> FastAPI:
         audit_log.router,
         prefix="/audit-log",
         tags=["audit"],
+    )
+    application.include_router(
+        stripe_connect.router,
+        tags=["stripe-connect"],
     )
 
     application.add_api_route(

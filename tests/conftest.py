@@ -27,6 +27,22 @@ os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test",
 )
+os.environ.setdefault(
+    "STRIPE_SECRET_KEY",
+    "sk_test_openpms_pytest_placeholder_key_min_len_______________",
+)
+os.environ.setdefault(
+    "STRIPE_CLIENT_ID",
+    "ca_openpms_pytest_client_id_placeholder________________",
+)
+os.environ.setdefault(
+    "STRIPE_REDIRECT_URI",
+    "http://test/stripe/oauth/callback",
+)
+os.environ.setdefault(
+    "STRIPE_CONNECT_SUCCESS_URL",
+    "http://test/stripe/success",
+)
 
 pytest_plugins = (
     "tests.test_channex_webhook_sync",

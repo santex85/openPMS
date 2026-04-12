@@ -124,6 +124,32 @@ class Settings(BaseSettings):
         default="redis://localhost:6379/0",
         description="Celery broker URL (Redis).",
     )
+    stripe_secret_key: str = Field(
+        default="",
+        description="Stripe secret API key (sk_...) for Connect OAuth token exchange and deauthorize.",
+    )
+    stripe_client_id: str = Field(
+        default="",
+        description="Stripe Connect client_id (ca_...) for OAuth authorize and deauthorize.",
+    )
+    stripe_redirect_uri: str = Field(
+        default="",
+        description="Registered redirect_uri for Stripe Connect OAuth (must match Dashboard).",
+    )
+    stripe_connect_success_url: str = Field(
+        default="",
+        description=(
+            "Browser redirect target after successful OAuth (e.g. Vite /settings). "
+            "Query params property_id and connected=1 are appended."
+        ),
+    )
+    stripe_oauth_state_secret: str | None = Field(
+        default=None,
+        description=(
+            "HMAC secret for signing OAuth state (tenant_id + property_id). "
+            "Defaults to jwt_secret (HS256) or webhook_secret_fernet_key material when unset."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_jwt_config(self) -> Self:
