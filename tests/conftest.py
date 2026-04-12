@@ -491,12 +491,14 @@ async def _seed_folio_scenario(*, booking_status: str = "checked_in") -> dict[st
             )
             await session.flush()
             booking_id = booking.id
+            seeded_property_id = prop.id
 
     await engine.dispose()
     return {
         "tenant_id": tenant_id,
         "user_id": user_id,
         "booking_id": booking_id,
+        "property_id": seeded_property_id,
     }
 
 

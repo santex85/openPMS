@@ -15,7 +15,8 @@ from app.api.deps import (
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.country_pack import PropertyLockStatusRead
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
-from app.services import property_service
+from app.schemas.tax_config import TaxConfigCreate, TaxConfigRead
+from app.services import property_service, tax_service
 from app.services.audit_service import record_audit
 from app.core.rate_limit import limiter
 
@@ -35,6 +36,15 @@ PropertyWriteRolesDep = Annotated[
     Depends(
         chain_dependency_runners(
             require_roles("owner", "manager"),
+            require_scopes(PROPERTIES_WRITE),
+        ),
+    ),
+]
+PropertyTaxOwnerWriteDep = Annotated[
+    None,
+    Depends(
+        chain_dependency_runners(
+            require_roles("owner"),
             require_scopes(PROPERTIES_WRITE),
         ),
     ),
@@ -96,6 +106,89 @@ async def get_property_lock_status(
         property_id=property_id,
         country_pack_locked=booking_count > 0,
         booking_count=booking_count,
+    )
+
+
+@router.get(
+    "/{property_id}/tax-config",
+    response_model=TaxConfigRead,
+)
+async def get_property_tax_config(
+    _: PropertyReadRolesDep,
+    property_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> TaxConfigRead:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    row = await tax_service.get_tax_config(session, tenant_id, property_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tax config not found",
+        )
+    return TaxConfigRead.model_validate(row)
+
+
+@router.put(
+    "/{property_id}/tax-config",
+    response_model=TaxConfigRead,
+)
+async def put_property_tax_config(
+    _: PropertyTaxOwnerWriteDep,
+    property_id: UUID,
+    body: TaxConfigCreate,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> TaxConfigRead:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    row = await tax_service.upsert_tax_config(session, tenant_id, property_id, body)
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.tax_config.upsert",
+        entity_type="property",
+        entity_id=property_id,
+        new_values=body.model_dump(mode="json"),
+    )
+    return TaxConfigRead.model_validate(row)
+
+
+@router.delete(
+    "/{property_id}/tax-config",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_property_tax_config(
+    _: PropertyTaxOwnerWriteDep,
+    property_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> None:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    deleted = await tax_service.delete_tax_config(session, tenant_id, property_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tax config not found",
+        )
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.tax_config.delete",
+        entity_type="property",
+        entity_id=property_id,
+        new_values={"deleted": True},
     )
 
 

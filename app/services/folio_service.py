@@ -40,6 +40,23 @@ async def _require_booking(
     return booking
 
 
+async def sum_booking_charge_amounts(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+) -> Decimal:
+    """Total posted charges (absolute); used as receipt / property-tax base amount."""
+    stmt = select(func.coalesce(func.sum(FolioTransaction.amount), 0)).where(
+        FolioTransaction.tenant_id == tenant_id,
+        FolioTransaction.booking_id == booking_id,
+        FolioTransaction.transaction_type == "Charge",
+    )
+    raw = await session.scalar(stmt)
+    if raw is None:
+        return Decimal("0.00")
+    return Decimal(str(raw)).quantize(Decimal("0.01"))
+
+
 async def compute_folio_balance(
     session: AsyncSession,
     tenant_id: UUID,

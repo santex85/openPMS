@@ -37,6 +37,7 @@ from app.schemas.bookings import (
     BookingUnpaidFolioSummaryRead,
 )
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
+from app.schemas.booking_receipt import BookingReceiptRead
 from app.schemas.folio import (
     BookingCheckoutBalanceWarning,
     FolioListResponse,
@@ -57,6 +58,7 @@ from app.services.booking_service import (
     patch_booking,
 )
 from app.services.room_assignable_service import list_assignable_rooms_for_stay
+from app.services.booking_receipt_service import build_booking_receipt
 from app.services.folio_service import (
     FolioError,
     add_folio_entry,
@@ -279,6 +281,26 @@ async def get_booking_folio(
         transactions=[FolioTransactionRead.model_validate(r) for r in rows],
         balance=balance,
     )
+
+
+@router.get(
+    "/{booking_id}/receipt",
+    response_model=BookingReceiptRead,
+    response_model_exclude_none=True,
+)
+async def get_booking_receipt(
+    _: BookingsReadRolesDep,
+    booking_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> BookingReceiptRead:
+    try:
+        return await build_booking_receipt(session, tenant_id, booking_id)
+    except FolioError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
 
 
 @router.post(

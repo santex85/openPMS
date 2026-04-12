@@ -7,8 +7,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.billing.tax_config import TaxConfig, TaxMode
 from app.models.core.country_pack import CountryPack
 from app.schemas.country_pack import TaxCalculationResponse, TaxLineResponse
+from app.schemas.tax_config import TaxBreakdown, TaxConfigCreate
 
 
 def _q2(value: Decimal) -> Decimal:
@@ -188,3 +190,107 @@ async def calculate_taxes(
         pack.taxes,
         applies_to_category=applies_to,
     )
+
+
+# --- Per-property tax (Phase 1): tax_configs + single-rate breakdown ---
+
+
+def calculate_property_tax(amount: Decimal, config: TaxConfig) -> TaxBreakdown:
+    """
+    Property-level VAT/sales tax for receipts.
+
+    * ``tax_mode == off`` or zero rate: no tax; gross == net == amount.
+    * ``inclusive``: ``amount`` is the gross total; tax is extracted.
+    * ``exclusive``: ``amount`` is the net total before tax; tax is added to gross.
+    """
+    rate = Decimal(str(config.tax_rate))
+    if config.tax_mode == TaxMode.off or rate == 0:
+        base = _q2(amount)
+        return TaxBreakdown(
+            tax_amount=Decimal("0.00"),
+            gross_total=base,
+            net_total=base,
+        )
+    if config.tax_mode == TaxMode.inclusive:
+        gross = _q2(amount)
+        tax = _q2(gross * rate / (Decimal("1") + rate))
+        net = _q2(gross - tax)
+        return TaxBreakdown(tax_amount=tax, gross_total=gross, net_total=net)
+    # exclusive
+    net = _q2(amount)
+    tax = _q2(net * rate)
+    gross = _q2(net + tax)
+    return TaxBreakdown(tax_amount=tax, gross_total=gross, net_total=net)
+
+
+def property_tax_summary_lines(config: TaxConfig, breakdown: TaxBreakdown) -> list[str]:
+    """Human-readable lines for receipts (Notion acceptance wording)."""
+    rate_pct = (Decimal(str(config.tax_rate)) * Decimal("100")).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+    name = config.tax_name.strip() or "Tax"
+    if config.tax_mode == TaxMode.inclusive:
+        return [
+            f"Includes {name} {rate_pct}% = {format(breakdown.tax_amount, 'f')}",
+        ]
+    if config.tax_mode == TaxMode.exclusive:
+        return [
+            f"{name} {rate_pct}% = {format(breakdown.tax_amount, 'f')}",
+        ]
+    return []
+
+
+async def get_tax_config(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> TaxConfig | None:
+    return await session.scalar(
+        select(TaxConfig).where(
+            TaxConfig.tenant_id == tenant_id,
+            TaxConfig.property_id == property_id,
+        ),
+    )
+
+
+async def upsert_tax_config(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+    data: TaxConfigCreate,
+) -> TaxConfig:
+    existing = await get_tax_config(session, tenant_id, property_id)
+    mode = TaxMode(data.tax_mode)
+    name = data.tax_name.strip()
+    if existing:
+        existing.tax_mode = mode
+        existing.tax_name = name
+        existing.tax_rate = data.tax_rate
+        await session.flush()
+        await session.refresh(existing)
+        return existing
+    row = TaxConfig(
+        tenant_id=tenant_id,
+        property_id=property_id,
+        tax_mode=mode,
+        tax_name=name,
+        tax_rate=data.tax_rate,
+    )
+    session.add(row)
+    await session.flush()
+    await session.refresh(row)
+    return row
+
+
+async def delete_tax_config(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+) -> bool:
+    row = await get_tax_config(session, tenant_id, property_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.flush()
+    return True
