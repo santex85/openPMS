@@ -95,6 +95,24 @@ services:
           memory: 512M
           cpus: "1.0"
 
+  celery-beat:
+    build: .
+    command: celery -A app.worker:celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD:-openpms}@db:5432/${POSTGRES_DB:-openpms}
+      JWT_SECRET: ${JWT_SECRET}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
   caddy:
     image: caddy:2-alpine
     ports:

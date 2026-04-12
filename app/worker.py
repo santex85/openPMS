@@ -1,6 +1,7 @@
 """Celery worker application (separate process from FastAPI / uvicorn)."""
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
 
@@ -25,3 +26,11 @@ def create_celery_app() -> Celery:
 
 celery_app = create_celery_app()
 celery_app.autodiscover_tasks(["app.tasks"])
+# Nightly full ARI push (365d) for every active Channex property link — TZ-15 seq 210.
+# Time is UTC (not property timezone).
+celery_app.conf.beat_schedule = {
+    "channex-nightly-ari-sync": {
+        "task": "channex_full_ari_sync_all_properties",
+        "schedule": crontab(hour=2, minute=0),
+    },
+}

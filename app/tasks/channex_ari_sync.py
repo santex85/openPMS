@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import get_settings
 from app.db.session import create_async_engine_and_sessionmaker
@@ -229,3 +229,41 @@ def channex_full_ari_sync(tenant_id: str, property_id: str) -> None:
     asyncio.run(
         _run_channex_full_ari_sync(UUID(tenant_id), UUID(property_id)),
     )
+
+
+async def _run_channex_full_ari_sync_all_properties() -> int:
+    """Enqueue full ARI sync for every active Channex link (RLS bypass via SQL function)."""
+    settings = get_settings()
+    engine, factory = create_async_engine_and_sessionmaker(settings)
+    pairs: list[tuple[UUID, UUID]] = []
+    try:
+        async with factory() as session:
+            async with session.begin():
+                res = await session.execute(
+                    text(
+                        "SELECT tenant_id, property_id "
+                        "FROM lookup_active_channex_property_links_for_worker()",
+                    ),
+                )
+                for row in res.all():
+                    pairs.append((row[0], row[1]))
+    finally:
+        await engine.dispose()
+
+    enqueued = 0
+    for tid, pid in pairs:
+        channex_full_ari_sync.delay(str(tid), str(pid))
+        enqueued += 1
+
+    log.info(
+        "channex_full_ari_sync_all_enqueued",
+        active_links=len(pairs),
+        enqueued=enqueued,
+    )
+    return enqueued
+
+
+@celery_app.task(name="channex_full_ari_sync_all_properties")
+def channex_full_ari_sync_all_properties() -> None:
+    """Nightly fanout: scheduled by Celery Beat (see worker beat_schedule)."""
+    asyncio.run(_run_channex_full_ari_sync_all_properties())
