@@ -42,6 +42,7 @@ class FolioTransactionRead(BaseModel):
     created_at: datetime
     created_by: UUID | None
     category: str
+    source_channel: str | None = None
 
     @field_serializer("amount")
     def serialize_decimal(self, v: Decimal) -> str:

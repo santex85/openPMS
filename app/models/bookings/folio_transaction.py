@@ -59,3 +59,4 @@ class FolioTransaction(Base):
         nullable=True,
     )
     category: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
