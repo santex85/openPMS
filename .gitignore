@@ -23,6 +23,7 @@ build/
 # Coverage / test artifacts
 .coverage
 coverage-report.txt
+pytest_output.txt
 htmlcov/
 *.cover
 

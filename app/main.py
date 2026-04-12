@@ -41,6 +41,7 @@ from app.api.routes import (
     room_types,
     rooms,
     stripe_connect,
+    stripe_payments,
     unpaid_folio_summary,
     webhooks,
 )
@@ -333,6 +334,10 @@ def create_app() -> FastAPI:
     application.include_router(
         stripe_connect.router,
         tags=["stripe-connect"],
+    )
+    application.include_router(
+        stripe_payments.router,
+        tags=["stripe-payments"],
     )
 
     application.add_api_route(
