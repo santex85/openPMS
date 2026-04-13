@@ -3,7 +3,17 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    status,
+)
+from sqlalchemy import select
 
 from app.api.deps import (
     SessionDep,
@@ -14,12 +24,16 @@ from app.api.deps import (
     require_scopes,
 )
 from app.core.api_scopes import CHANNEX_READ, CHANNEX_WRITE
+from app.models.integrations.channex_booking_revision import ChannexBookingRevision
 from app.schemas.channex import (
     ChannexConnectRequest,
     ChannexPropertyLinkRead,
     ChannexPropertyRead,
     ChannexProvisionRead,
     ChannexRatePlanRead,
+    ChannexRevisionFailedRead,
+    ChannexRevisionRetryQueuedResponse,
+    ChannexRevisionsFailedListResponse,
     ChannexRoomTypeRead,
     ChannexStatusRead,
     ChannexSyncQueuedResponse,
@@ -201,6 +215,87 @@ async def channex_status(
     property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
 ) -> ChannexStatusRead:
     return await channex_service.get_status(session, tenant_id, property_id)
+
+
+@router.get(
+    "/revisions/failed",
+    response_model=ChannexRevisionsFailedListResponse,
+    summary="List Channex booking revisions that failed ingestion (error state)",
+)
+async def list_failed_channex_revisions(
+    _: ChannexReadDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    property_id: Annotated[
+        UUID | None,
+        Query(description="Filter by OpenPMS property UUID (via Channex link)"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ChannexRevisionsFailedListResponse:
+    rows, total = await channex_service.list_failed_channex_booking_revisions(
+        session,
+        tenant_id,
+        property_id=property_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        ChannexRevisionFailedRead(
+            id=rev.id,
+            channex_revision_id=rev.channex_revision_id,
+            channex_booking_id=rev.channex_booking_id,
+            property_id=prop_id,
+            channel_code=rev.channel_code,
+            error_message=rev.error_message,
+            received_at=rev.received_at,
+            processed_at=rev.processed_at,
+        )
+        for rev, prop_id in rows
+    ]
+    return ChannexRevisionsFailedListResponse(total=total, items=items)
+
+
+@router.post(
+    "/revisions/{revision_id}/retry",
+    response_model=ChannexRevisionRetryQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue async retry of a failed Channex booking revision (replay stored payload)",
+)
+async def retry_failed_channex_revision(
+    _: ChannexWriteDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    revision_id: Annotated[
+        UUID,
+        Path(
+            description=(
+                "OpenPMS ``channex_booking_revisions.id`` (primary key). "
+                "Not the Channex-side revision id."
+            ),
+        ),
+    ],
+) -> ChannexRevisionRetryQueuedResponse:
+    rev = await session.scalar(
+        select(ChannexBookingRevision).where(
+            ChannexBookingRevision.id == revision_id,
+            ChannexBookingRevision.tenant_id == tenant_id,
+        ),
+    )
+    if rev is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Booking revision not found",
+        )
+    if rev.processing_status != "error":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only revisions in error state can be retried",
+        )
+    from app.tasks.channex_booking_retry import channex_retry_booking_revision
+
+    channex_retry_booking_revision.delay(str(revision_id), str(tenant_id))
+    return ChannexRevisionRetryQueuedResponse()
 
 
 @router.get(

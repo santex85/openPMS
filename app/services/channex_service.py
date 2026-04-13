@@ -11,8 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.integrations.channex.client import ChannexApiError, ChannexClient
-from app.integrations.channex.crypto import decrypt_channex_api_key, encrypt_channex_api_key
+from app.integrations.channex.crypto import (
+    decrypt_channex_api_key,
+    encrypt_channex_api_key,
+)
 from app.integrations.channex.schemas import ChannexProperty
+from app.models.integrations.channex_booking_revision import ChannexBookingRevision
 from app.models.integrations.channex_property_link import ChannexPropertyLink
 from app.models.integrations.channex_rate_plan_map import ChannexRatePlanMap
 from app.models.integrations.channex_room_type_map import ChannexRoomTypeMap
@@ -189,11 +193,11 @@ async def get_status(
     rt_rows = list(rt_result.scalars().all())
     room_n = len(rt_rows)
 
-    room_type_maps = [
-        ChannexRoomTypeMapRead.model_validate(r) for r in rt_rows
-    ]
+    room_type_maps = [ChannexRoomTypeMapRead.model_validate(r) for r in rt_rows]
     rate_n = await session.scalar(
-        select(func.count()).select_from(ChannexRatePlanMap).where(
+        select(func.count())
+        .select_from(ChannexRatePlanMap)
+        .where(
             ChannexRatePlanMap.tenant_id == tenant_id,
             ChannexRatePlanMap.room_type_map_id.in_(
                 select(ChannexRoomTypeMap.id).where(
@@ -225,7 +229,9 @@ async def get_channex_rooms(
 ) -> list[ChannexRoomTypeRead]:
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
-        raise ChannexServiceError("Channex is not connected for this property", status_code=404)
+        raise ChannexServiceError(
+            "Channex is not connected for this property", status_code=404
+        )
     client = _client_for_link(link)
     try:
         items = await client.get_room_types(link.channex_property_id)
@@ -241,7 +247,9 @@ async def get_channex_rates(
 ) -> list[ChannexRatePlanRead]:
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
-        raise ChannexServiceError("Channex is not connected for this property", status_code=404)
+        raise ChannexServiceError(
+            "Channex is not connected for this property", status_code=404
+        )
     client = _client_for_link(link)
     try:
         items = await client.get_rate_plans(link.channex_property_id)
@@ -387,11 +395,15 @@ async def _assert_room_types_belong_to_property(
 ) -> None:
     if not room_type_ids:
         return
-    stmt = select(func.count()).select_from(RoomType).where(
-        RoomType.tenant_id == tenant_id,
-        RoomType.property_id == property_id,
-        RoomType.id.in_(room_type_ids),
-        RoomType.deleted_at.is_(None),
+    stmt = (
+        select(func.count())
+        .select_from(RoomType)
+        .where(
+            RoomType.tenant_id == tenant_id,
+            RoomType.property_id == property_id,
+            RoomType.id.in_(room_type_ids),
+            RoomType.deleted_at.is_(None),
+        )
     )
     n = await session.scalar(stmt)
     if int(n or 0) != len(set(room_type_ids)):
@@ -409,14 +421,20 @@ async def save_room_mappings(
 ) -> None:
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
-        raise ChannexServiceError("Channex is not connected for this property", status_code=404)
+        raise ChannexServiceError(
+            "Channex is not connected for this property", status_code=404
+        )
 
     room_type_ids = [m.room_type_id for m in mappings]
     if len(room_type_ids) != len(set(room_type_ids)):
-        raise ChannexServiceError("Duplicate OpenPMS room type in mappings", status_code=422)
+        raise ChannexServiceError(
+            "Duplicate OpenPMS room type in mappings", status_code=422
+        )
     channex_ids = [m.channex_room_type_id for m in mappings]
     if len(channex_ids) != len(set(channex_ids)):
-        raise ChannexServiceError("Duplicate Channex room type in mappings", status_code=422)
+        raise ChannexServiceError(
+            "Duplicate Channex room type in mappings", status_code=422
+        )
 
     await _assert_room_types_belong_to_property(
         session,
@@ -463,10 +481,14 @@ async def _assert_rate_plans_belong_to_property(
 ) -> None:
     if not rate_plan_ids:
         return
-    stmt = select(func.count()).select_from(RatePlan).where(
-        RatePlan.tenant_id == tenant_id,
-        RatePlan.property_id == property_id,
-        RatePlan.id.in_(rate_plan_ids),
+    stmt = (
+        select(func.count())
+        .select_from(RatePlan)
+        .where(
+            RatePlan.tenant_id == tenant_id,
+            RatePlan.property_id == property_id,
+            RatePlan.id.in_(rate_plan_ids),
+        )
     )
     n = await session.scalar(stmt)
     if int(n or 0) != len(set(rate_plan_ids)):
@@ -484,7 +506,9 @@ async def save_rate_mappings(
 ) -> None:
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
-        raise ChannexServiceError("Channex is not connected for this property", status_code=404)
+        raise ChannexServiceError(
+            "Channex is not connected for this property", status_code=404
+        )
 
     if not mappings:
         subq = select(ChannexRoomTypeMap.id).where(
@@ -560,7 +584,9 @@ async def activate(
 ) -> ChannexPropertyLink:
     link = await _get_link(session, tenant_id, property_id)
     if link is None:
-        raise ChannexServiceError("Channex is not connected for this property", status_code=404)
+        raise ChannexServiceError(
+            "Channex is not connected for this property", status_code=404
+        )
     now = datetime.now(timezone.utc)
     settings = get_settings()
     webhook_url = (settings.channex_webhook_url or "").strip()
@@ -654,3 +680,41 @@ async def disconnect(
         ),
     )
     await session.flush()
+
+
+async def list_failed_channex_booking_revisions(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    property_id: UUID | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[tuple[ChannexBookingRevision, UUID]], int]:
+    """List booking revisions in ``error`` for the tenant, newest ``received_at`` first."""
+    join_cond = ChannexPropertyLink.id == ChannexBookingRevision.property_link_id
+    filters = [
+        ChannexBookingRevision.tenant_id == tenant_id,
+        ChannexBookingRevision.processing_status == "error",
+    ]
+    if property_id is not None:
+        filters.append(ChannexPropertyLink.property_id == property_id)
+
+    count_stmt = (
+        select(func.count())
+        .select_from(ChannexBookingRevision)
+        .join(ChannexPropertyLink, join_cond)
+        .where(*filters)
+    )
+    total = int((await session.execute(count_stmt)).scalar_one())
+
+    list_stmt = (
+        select(ChannexBookingRevision, ChannexPropertyLink.property_id)
+        .join(ChannexPropertyLink, join_cond)
+        .where(*filters)
+        .order_by(ChannexBookingRevision.received_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(list_stmt)
+    rows = [(row[0], row[1]) for row in result.all()]
+    return rows, total

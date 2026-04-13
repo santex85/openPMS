@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -108,3 +109,27 @@ class RateMappingItem(BaseModel):
 
 class RateMappingRequest(BaseModel):
     mappings: list[RateMappingItem]
+
+
+class ChannexRevisionFailedRead(BaseModel):
+    """One Channex booking revision row stuck in ``error`` (OpenPMS DB row)."""
+
+    id: UUID = Field(
+        description="OpenPMS ``channex_booking_revisions.id`` (not Channex revision id)."
+    )
+    channex_revision_id: str
+    channex_booking_id: str | None = None
+    property_id: UUID
+    channel_code: str | None = None
+    error_message: str | None = None
+    received_at: datetime
+    processed_at: datetime | None = None
+
+
+class ChannexRevisionsFailedListResponse(BaseModel):
+    total: int
+    items: list[ChannexRevisionFailedRead]
+
+
+class ChannexRevisionRetryQueuedResponse(BaseModel):
+    status: Literal["queued"] = "queued"
