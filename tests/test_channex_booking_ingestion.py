@@ -17,7 +17,7 @@ from app.models.integrations.channex_booking_revision import ChannexBookingRevis
 from app.models.integrations.channex_property_link import ChannexPropertyLink
 from app.models.rates.availability_ledger import AvailabilityLedger
 from app.db.rls_session import tenant_transaction_session
-from app.services.channex_booking_service import ingest_channex_booking
+from app.services.channex_booking_service import ChannexIngestResult, ingest_channex_booking
 from app.tasks.channex_webhook_task import _run_channex_process_webhook
 
 
@@ -135,6 +135,7 @@ async def test_channex_new_creates_booking_and_ledger(
         out = await ingest_channex_booking(session, tid, link, flat)
     assert out.skip_idempotent is False
     assert out.schedule_availability_push is True
+    assert out.success is True
 
     async with factory() as session:
         async with session.begin():
@@ -202,12 +203,14 @@ async def test_channex_ingest_idempotent_same_revision(
         assert link is not None
         out1 = await ingest_channex_booking(session, tid, link, flat)
     assert out1.skip_idempotent is False
+    assert out1.success is True
 
     async with tenant_transaction_session(factory, tid) as session:
         link = await session.get(ChannexPropertyLink, link_id)
         assert link is not None
         out2 = await ingest_channex_booking(session, tid, link, flat)
     assert out2.skip_idempotent is True
+    assert out2.success is True
 
 
 @pytest.mark.asyncio
@@ -264,6 +267,7 @@ async def test_channex_modified_updates_stay(
         assert link is not None
         out = await ingest_channex_booking(session, tid, link, flat_mod)
     assert out.schedule_availability_push is True
+    assert out.success is True
 
     async with factory() as session:
         async with session.begin():
@@ -401,6 +405,7 @@ async def test_channex_unknown_room_type_marks_revision_error(
         assert link is not None
         out = await ingest_channex_booking(session, tid, link, flat)
     assert out.schedule_availability_push is False
+    assert out.success is False
 
     async with factory() as session:
         async with session.begin():
@@ -496,3 +501,72 @@ async def test_channex_webhook_acknowledges_after_ingest(
     mock_client.get_booking_revision_raw.assert_awaited_once_with(rev_id)
     mock_client.acknowledge_revision.assert_awaited_once_with(rev_id)
     mock_push.delay.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_channex_webhook_skips_ack_when_ingest_not_successful(
+    channex_active_ctx: dict[str, object],
+    db_engine: object,
+    channex_encrypt_env: None,
+) -> None:
+    if not _database_url():
+        pytest.skip("Set DATABASE_URL for integration tests")
+
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    tid = channex_active_ctx["tenant_id"]  # type: ignore[assignment]
+    cx_prop = channex_active_ctx["cx_property_id"]  # type: ignore[assignment]
+    prop_id = channex_active_ctx["property_id"]  # type: ignore[assignment]
+
+    rev_id = str(uuid4())
+    webhook_log_id = uuid4()
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tid)},
+            )
+            from app.models.integrations.channex_webhook_log import ChannexWebhookLog
+
+            session.add(
+                ChannexWebhookLog(
+                    id=webhook_log_id,
+                    tenant_id=tid,
+                    event_type="booking",
+                    payload={
+                        "event": "booking_new",
+                        "property_id": cx_prop,
+                        "payload": {"id": rev_id},
+                    },
+                    signature=None,
+                    ip_address=None,
+                    processed=False,
+                ),
+            )
+
+    mock_client = AsyncMock()
+    mock_client.get_booking_revision_raw = AsyncMock(return_value={"id": rev_id})
+    ingest_result = ChannexIngestResult(
+        skip_idempotent=False,
+        schedule_availability_push=False,
+        tenant_id=tid,
+        property_id=prop_id,
+        room_type_id=None,
+        date_strs=tuple(),
+        success=False,
+    )
+
+    with patch(
+        "app.tasks.channex_webhook_task._client_for_link",
+        return_value=mock_client,
+    ):
+        with patch(
+            "app.tasks.channex_webhook_task.ingest_channex_booking",
+            new_callable=AsyncMock,
+            return_value=ingest_result,
+        ):
+            await _run_channex_process_webhook(webhook_log_id)
+
+    mock_client.get_booking_revision_raw.assert_awaited_once_with(rev_id)
+    mock_client.acknowledge_revision.assert_not_called()

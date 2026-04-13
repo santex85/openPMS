@@ -33,6 +33,7 @@ from app.services.availability_lock import (
     lock_and_validate_availability,
 )
 from app.services.booking_service import (
+    InvalidBookingContextError,
     _pick_first_free_room_for_stay,
     assign_booking_room,
 )
@@ -48,7 +49,10 @@ def _parse_iso_date(value: str | None) -> date | None:
     s = str(value).strip()
     if "T" in s:
         s = s.split("T", 1)[0]
-    return date.fromisoformat(s[:10])
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
 
 
 def _decimal_amount(raw: str | float | int | None) -> Decimal:
@@ -154,6 +158,7 @@ class ChannexIngestResult:
     property_id: UUID
     room_type_id: UUID | None
     date_strs: tuple[str, ...]
+    success: bool = True
 
 
 def _sorted_date_strs(dates: list[date]) -> tuple[str, ...]:
@@ -233,6 +238,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=None,
             date_strs=empty_dates,
+            success=False,
         )
 
     revision_id = (payload.id or "").strip()
@@ -244,6 +250,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=None,
             date_strs=empty_dates,
+            success=False,
         )
 
     claim = await _claim_revision_row(
@@ -281,6 +288,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=None,
             date_strs=empty_dates,
+            success=False,
         )
 
     maps = await _resolve_room_and_rate_maps(
@@ -305,6 +313,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=None,
             date_strs=empty_dates,
+            success=False,
         )
 
     rtm, rpm = maps
@@ -326,6 +335,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=room_type_id,
             date_strs=empty_dates,
+            success=False,
         )
 
     nights = list(iter_stay_nights(check_in, check_out))
@@ -341,6 +351,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=room_type_id,
             date_strs=empty_dates,
+            success=False,
         )
 
     total = _decimal_amount(payload.amount)
@@ -374,6 +385,7 @@ async def ingest_channex_booking(
                     property_id=property_id,
                     room_type_id=room_type_id,
                     date_strs=empty_dates,
+                    success=False,
                 )
             if booking.status != "cancelled":
                 lines = list(booking.lines)
@@ -422,6 +434,7 @@ async def ingest_channex_booking(
                     property_id=property_id,
                     room_type_id=room_type_id,
                     date_strs=empty_dates,
+                    success=False,
                 )
             old_lines = list(booking.lines)
             old_nights = sorted({ln.date for ln in old_lines})
@@ -438,6 +451,7 @@ async def ingest_channex_booking(
                     property_id=property_id,
                     room_type_id=room_type_id,
                     date_strs=empty_dates,
+                    success=False,
                 )
             old_room_type_id = next(iter(old_rt))
 
@@ -640,6 +654,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=room_type_id,
             date_strs=empty_dates,
+            success=False,
         )
 
     except LedgerNotSeededError as exc:
@@ -659,6 +674,27 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=room_type_id,
             date_strs=empty_dates,
+            success=False,
+        )
+
+    except InvalidBookingContextError as exc:
+        log.warning(
+            "channex_guest_collision",
+            revision_id=revision_id,
+            error=str(exc),
+        )
+        rev_row.processing_status = "error"
+        rev_row.error_message = f"guest creation failed: {exc}"[:2000]
+        rev_row.processed_at = now
+        await session.flush()
+        return ChannexIngestResult(
+            skip_idempotent=False,
+            schedule_availability_push=False,
+            tenant_id=tenant_id,
+            property_id=property_id,
+            room_type_id=room_type_id,
+            date_strs=empty_dates,
+            success=False,
         )
 
     except IntegrityError as exc:
@@ -674,6 +710,7 @@ async def ingest_channex_booking(
             property_id=property_id,
             room_type_id=room_type_id,
             date_strs=empty_dates,
+            success=False,
         )
 
     return ChannexIngestResult(

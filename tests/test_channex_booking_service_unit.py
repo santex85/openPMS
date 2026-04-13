@@ -32,6 +32,11 @@ def test_parse_iso_date_datetime_string() -> None:
     assert _parse_iso_date("2026-05-01T12:00:00Z") == date(2026, 5, 1)
 
 
+def test_parse_iso_date_invalid_returns_none() -> None:
+    assert _parse_iso_date("2026-13-45") is None
+    assert _parse_iso_date("invalid") is None
+
+
 def test_decimal_amount_handles_types() -> None:
     assert _decimal_amount(None) == Decimal("0.00")
     assert _decimal_amount("") == Decimal("0.00")
@@ -73,6 +78,7 @@ async def test_ingest_invalid_json_returns_empty_schedule(
             )
     assert out.schedule_availability_push is False
     assert out.room_type_id is None
+    assert out.success is False
 
 
 @pytest.mark.asyncio
@@ -110,6 +116,7 @@ async def test_ingest_missing_revision_id_returns_empty(
             out = await ingest_channex_booking(session, tid, link, minimal)
     assert out.skip_idempotent is False
     assert out.date_strs == ()
+    assert out.success is False
 
 
 @pytest.mark.asyncio
@@ -243,6 +250,7 @@ async def test_ingest_cancelled_without_local_booking_marks_error(
             assert link is not None
             out = await ingest_channex_booking(session, tid, link, flat)
             assert out.schedule_availability_push is False
+            assert out.success is False
             row = await session.scalar(
                 select(ChannexBookingRevision).where(
                     ChannexBookingRevision.channex_revision_id == revision_id,
@@ -309,6 +317,7 @@ async def test_ingest_new_insufficient_inventory_marks_revision_error(
 
     assert out.schedule_availability_push is False
     assert out.skip_idempotent is False
+    assert out.success is False
 
     async with factory() as session:
         async with session.begin():
@@ -384,6 +393,7 @@ async def test_ingest_new_ledger_not_seeded_marks_revision_error(
 
     assert out.schedule_availability_push is False
     assert out.skip_idempotent is False
+    assert out.success is False
 
     async with factory() as session:
         async with session.begin():
@@ -401,3 +411,163 @@ async def test_ingest_new_ledger_not_seeded_marks_revision_error(
     assert row is not None
     assert row.processing_status == "error"
     assert (row.error_message or "").startswith("ledger not seeded:")
+
+
+@pytest.mark.asyncio
+async def test_ingest_new_guest_collision_marks_revision_error(
+    db_engine: object,
+    channex_encrypt_env: None,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock, patch
+
+    from sqlalchemy import select, text
+
+    from app.db.rls_session import tenant_transaction_session
+    from app.models.integrations.channex_booking_revision import ChannexBookingRevision
+    from app.models.integrations.channex_property_link import ChannexPropertyLink
+    from app.services.booking_service import InvalidBookingContextError
+    from tests.test_channex_booking_ingestion import _revision_flat
+    from tests.test_channex_webhook_sync import _database_url, _seed_channex_property
+
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+
+    ctx = await _seed_channex_property(
+        db_engine,
+        status="active",
+        channex_webhook_id=None,
+    )
+    tid = ctx["tenant_id"]
+    link_id = ctx["link_id"]
+    cx_rt = str(ctx["channex_room_type_id"])
+    cx_rp = str(ctx["channex_rate_plan_id"])
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    ci = datetime.now(UTC).date() + timedelta(days=50)
+    co = ci + timedelta(days=2)
+    rev_id = str(uuid4())
+    book_id = str(uuid4())
+    flat = _revision_flat(
+        revision_id=rev_id,
+        booking_id=book_id,
+        status="new",
+        cx_room_type_id=cx_rt,
+        cx_rate_plan_id=cx_rp,
+        ci=ci,
+        co=co,
+    )
+
+    async def _raise_guest_collision(*args: object, **kwargs: object) -> None:
+        raise InvalidBookingContextError(
+            "guest with this email already exists for this tenant",
+        )
+
+    async def _fake_lock(*args: object, **kwargs: object) -> list[MagicMock]:
+        row = MagicMock()
+        row.booked_rooms = 0
+        return [row]
+
+    with (
+        patch(
+            "app.services.channex_booking_service.lock_and_validate_availability",
+            side_effect=_fake_lock,
+        ),
+        patch(
+            "app.services.booking_service._get_or_create_guest_for_booking",
+            side_effect=_raise_guest_collision,
+        ),
+    ):
+        async with tenant_transaction_session(factory, tid) as session:
+            link = await session.get(ChannexPropertyLink, link_id)
+            assert link is not None
+            out = await ingest_channex_booking(session, tid, link, flat)
+
+    assert out.schedule_availability_push is False
+    assert out.skip_idempotent is False
+    assert out.success is False
+
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tid)},
+            )
+            row = await session.scalar(
+                select(ChannexBookingRevision).where(
+                    ChannexBookingRevision.channex_revision_id == rev_id,
+                ),
+            )
+    assert row is not None
+    assert row.processing_status == "error"
+    assert (row.error_message or "").startswith("guest creation failed:")
+
+
+@pytest.mark.asyncio
+async def test_ingest_invalid_channex_dates_marks_revision_error(
+    db_engine: object,
+    channex_encrypt_env: None,
+) -> None:
+    from sqlalchemy import select, text
+
+    from app.models.integrations.channex_booking_revision import ChannexBookingRevision
+    from app.models.integrations.channex_property_link import ChannexPropertyLink
+    from tests.test_channex_webhook_sync import _database_url, _seed_channex_property
+
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+
+    ctx = await _seed_channex_property(
+        db_engine,
+        status="active",
+        channex_webhook_id=None,
+    )
+    tid = ctx["tenant_id"]
+    link_id = ctx["link_id"]
+    cx_rt = str(ctx["channex_room_type_id"])
+    cx_rp = str(ctx["channex_rate_plan_id"])
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    revision_id = str(uuid4())
+    book_id = str(uuid4())
+    flat = {
+        "id": revision_id,
+        "booking_id": book_id,
+        "status": "confirmed",
+        "amount": "100.00",
+        "rooms": [
+            {
+                "room_type_id": cx_rt,
+                "rate_plan_id": cx_rp,
+                "checkin_date": "2026-13-45",
+                "checkout_date": "2026-08-10",
+            },
+        ],
+        "customer": {"name": "A", "surname": "B", "mail": "a@example.com", "phone": "+1"},
+    }
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tid)},
+            )
+            link = await session.scalar(
+                select(ChannexPropertyLink).where(
+                    ChannexPropertyLink.id == link_id,
+                ),
+            )
+            assert link is not None
+            out = await ingest_channex_booking(session, tid, link, flat)
+            assert out.success is False
+            row = await session.scalar(
+                select(ChannexBookingRevision).where(
+                    ChannexBookingRevision.channex_revision_id == revision_id,
+                ),
+            )
+    assert row is not None
+    assert row.processing_status == "error"
+    assert "Invalid or missing arrival/departure dates" in (row.error_message or "")

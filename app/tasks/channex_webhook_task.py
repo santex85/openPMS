@@ -159,8 +159,14 @@ async def _run_channex_process_webhook(webhook_log_id: UUID) -> None:
             await ack_engine.dispose()
         if client_ack is not None:
             try:
-                await client_ack.acknowledge_revision(ack_revision_id)
-                log.info("channex_webhook_booking_ack", revision_id=ack_revision_id)
+                if ingest_out is not None and not ingest_out.success:
+                    log.warning(
+                        "channex_ack_skipped_due_to_error",
+                        revision_id=ack_revision_id,
+                    )
+                else:
+                    await client_ack.acknowledge_revision(ack_revision_id)
+                    log.info("channex_webhook_booking_ack", revision_id=ack_revision_id)
             except ChannexApiError as exc:
                 log.warning(
                     "channex_webhook_booking_ack_failed",
