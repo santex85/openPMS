@@ -251,3 +251,153 @@ async def test_ingest_cancelled_without_local_booking_marks_error(
     assert row is not None
     assert row.processing_status == "error"
     assert "No OpenPMS booking" in (row.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_ingest_new_insufficient_inventory_marks_revision_error(
+    db_engine: object,
+    channex_encrypt_env: None,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
+
+    from sqlalchemy import select, text
+
+    from app.db.rls_session import tenant_transaction_session
+    from app.models.integrations.channex_booking_revision import ChannexBookingRevision
+    from app.models.integrations.channex_property_link import ChannexPropertyLink
+    from app.services.availability_lock import InsufficientInventoryError
+    from tests.test_channex_booking_ingestion import _revision_flat
+    from tests.test_channex_webhook_sync import _database_url, _seed_channex_property
+
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+
+    ctx = await _seed_channex_property(
+        db_engine,
+        status="active",
+        channex_webhook_id=None,
+    )
+    tid = ctx["tenant_id"]
+    link_id = ctx["link_id"]
+    cx_rt = str(ctx["channex_room_type_id"])
+    cx_rp = str(ctx["channex_rate_plan_id"])
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    ci = datetime.now(UTC).date() + timedelta(days=50)
+    co = ci + timedelta(days=2)
+    rev_id = str(uuid4())
+    book_id = str(uuid4())
+    flat = _revision_flat(
+        revision_id=rev_id,
+        booking_id=book_id,
+        status="new",
+        cx_room_type_id=cx_rt,
+        cx_rate_plan_id=cx_rp,
+        ci=ci,
+        co=co,
+    )
+
+    with patch(
+        "app.services.channex_booking_service.lock_and_validate_availability",
+        side_effect=InsufficientInventoryError("no availability"),
+    ):
+        async with tenant_transaction_session(factory, tid) as session:
+            link = await session.get(ChannexPropertyLink, link_id)
+            assert link is not None
+            out = await ingest_channex_booking(session, tid, link, flat)
+
+    assert out.schedule_availability_push is False
+    assert out.skip_idempotent is False
+
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tid)},
+            )
+            row = await session.scalar(
+                select(ChannexBookingRevision).where(
+                    ChannexBookingRevision.channex_revision_id == rev_id,
+                ),
+            )
+    assert row is not None
+    assert row.processing_status == "error"
+    assert (row.error_message or "").startswith("overbooking:")
+
+
+@pytest.mark.asyncio
+async def test_ingest_new_ledger_not_seeded_marks_revision_error(
+    db_engine: object,
+    channex_encrypt_env: None,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
+
+    from sqlalchemy import select, text
+
+    from app.db.rls_session import tenant_transaction_session
+    from app.models.integrations.channex_booking_revision import ChannexBookingRevision
+    from app.models.integrations.channex_property_link import ChannexPropertyLink
+    from app.services.availability_lock import LedgerNotSeededError
+    from tests.test_channex_booking_ingestion import _revision_flat
+    from tests.test_channex_webhook_sync import _database_url, _seed_channex_property
+
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+
+    ctx = await _seed_channex_property(
+        db_engine,
+        status="active",
+        channex_webhook_id=None,
+    )
+    tid = ctx["tenant_id"]
+    link_id = ctx["link_id"]
+    cx_rt = str(ctx["channex_room_type_id"])
+    cx_rp = str(ctx["channex_rate_plan_id"])
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    ci = datetime.now(UTC).date() + timedelta(days=50)
+    co = ci + timedelta(days=2)
+    rev_id = str(uuid4())
+    book_id = str(uuid4())
+    flat = _revision_flat(
+        revision_id=rev_id,
+        booking_id=book_id,
+        status="new",
+        cx_room_type_id=cx_rt,
+        cx_rate_plan_id=cx_rp,
+        ci=ci,
+        co=co,
+    )
+
+    with patch(
+        "app.services.channex_booking_service.lock_and_validate_availability",
+        side_effect=LedgerNotSeededError("availability ledger not seeded"),
+    ):
+        async with tenant_transaction_session(factory, tid) as session:
+            link = await session.get(ChannexPropertyLink, link_id)
+            assert link is not None
+            out = await ingest_channex_booking(session, tid, link, flat)
+
+    assert out.schedule_availability_push is False
+    assert out.skip_idempotent is False
+
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text(
+                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                ),
+                {"tid": str(tid)},
+            )
+            row = await session.scalar(
+                select(ChannexBookingRevision).where(
+                    ChannexBookingRevision.channex_revision_id == rev_id,
+                ),
+            )
+    assert row is not None
+    assert row.processing_status == "error"
+    assert (row.error_message or "").startswith("ledger not seeded:")

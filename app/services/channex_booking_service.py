@@ -26,6 +26,8 @@ from app.models.integrations.channex_rate_plan_map import ChannexRatePlanMap
 from app.models.integrations.channex_room_type_map import ChannexRoomTypeMap
 from app.schemas.bookings import GuestPayload
 from app.services.availability_lock import (
+    InsufficientInventoryError,
+    LedgerNotSeededError,
     decrement_booked_rooms,
     increment_booked_rooms,
     lock_and_validate_availability,
@@ -620,6 +622,44 @@ async def ingest_channex_booking(
             rev_row.processed_at = now
             link_row.last_sync_at = now  # type: ignore[assignment]
             await session.flush()
+
+    except InsufficientInventoryError as exc:
+        log.warning(
+            "channex_overbooking",
+            revision_id=revision_id,
+            error=str(exc),
+        )
+        rev_row.processing_status = "error"
+        rev_row.error_message = f"overbooking: {exc}"[:2000]
+        rev_row.processed_at = now
+        await session.flush()
+        return ChannexIngestResult(
+            skip_idempotent=False,
+            schedule_availability_push=False,
+            tenant_id=tenant_id,
+            property_id=property_id,
+            room_type_id=room_type_id,
+            date_strs=empty_dates,
+        )
+
+    except LedgerNotSeededError as exc:
+        log.warning(
+            "channex_ledger_not_seeded",
+            revision_id=revision_id,
+            error=str(exc),
+        )
+        rev_row.processing_status = "error"
+        rev_row.error_message = f"ledger not seeded: {exc}"[:2000]
+        rev_row.processed_at = now
+        await session.flush()
+        return ChannexIngestResult(
+            skip_idempotent=False,
+            schedule_availability_push=False,
+            tenant_id=tenant_id,
+            property_id=property_id,
+            room_type_id=room_type_id,
+            date_strs=empty_dates,
+        )
 
     except IntegrityError as exc:
         log.warning("channex_booking_integrity", error=str(exc))
