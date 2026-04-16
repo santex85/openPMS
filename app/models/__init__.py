@@ -36,4 +36,4 @@ from app.models.billing import (  # noqa: F401
     StripePaymentMethod,
     TaxConfig,
 )
-from app.models.notifications import EmailLog  # noqa: F401
+from app.models.notifications import EmailLog, EmailSettings  # noqa: F401

@@ -38,6 +38,7 @@ from app.schemas.bookings import (
     BookingUnpaidFolioSummaryRead,
     SendInvoiceRequest,
 )
+from app.schemas.email_log import EmailLogRead
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.schemas.booking_receipt import BookingReceiptRead
 from app.schemas.folio import (
@@ -73,6 +74,7 @@ from app.services.pricing_service import MissingRatesError
 from app.services.audit_service import record_audit
 from app.services.channex_ari_triggers import schedule_push_channex_availability
 from app.services.stay_dates import iter_stay_nights
+from app.services.email_log_service import list_email_logs_for_booking
 from app.services.email_service import (
     run_send_booking_confirmation_task,
     run_send_cancellation_email_task,
@@ -238,6 +240,26 @@ async def get_unpaid_folio_summary(
             ),
         )
     return out
+
+
+@router.get(
+    "/{booking_id}/email-logs",
+    response_model=list[EmailLogRead],
+    summary="Outbound email audit for a booking",
+)
+async def get_booking_email_logs(
+    _: BookingsReadRolesDep,
+    booking_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> list[EmailLogRead]:
+    if await get_booking_tape(session, tenant_id, booking_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="booking not found",
+        )
+    rows = await list_email_logs_for_booking(session, tenant_id, booking_id)
+    return [EmailLogRead.model_validate(r) for r in rows]
 
 
 @router.get(

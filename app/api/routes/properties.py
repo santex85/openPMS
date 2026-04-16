@@ -14,9 +14,11 @@ from app.api.deps import (
 )
 from app.core.api_scopes import PROPERTIES_READ, PROPERTIES_WRITE
 from app.schemas.country_pack import PropertyLockStatusRead
+from app.schemas.email_settings import EmailSettingsPut, EmailSettingsRead
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.schemas.tax_config import TaxConfigCreate, TaxConfigRead
 from app.services import property_service, tax_service
+from app.services.email_settings_service import get_email_settings, upsert_email_settings
 from app.services.audit_service import record_audit
 from app.core.rate_limit import limiter
 
@@ -159,6 +161,58 @@ async def put_property_tax_config(
         new_values=body.model_dump(mode="json"),
     )
     return TaxConfigRead.model_validate(row)
+
+
+@router.get(
+    "/{property_id}/email-settings",
+    response_model=EmailSettingsRead,
+)
+async def get_property_email_settings(
+    _: PropertyReadRolesDep,
+    property_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> EmailSettingsRead:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    row = await get_email_settings(session, tenant_id, property_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email settings not found",
+        )
+    return EmailSettingsRead.model_validate(row)
+
+
+@router.put(
+    "/{property_id}/email-settings",
+    response_model=EmailSettingsRead,
+)
+async def put_property_email_settings(
+    _: PropertyWriteRolesDep,
+    property_id: UUID,
+    body: EmailSettingsPut,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> EmailSettingsRead:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    row = await upsert_email_settings(session, tenant_id, property_id, body)
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.email_settings.upsert",
+        entity_type="property",
+        entity_id=property_id,
+        new_values=body.model_dump(mode="json"),
+    )
+    return EmailSettingsRead.model_validate(row)
 
 
 @router.delete(
