@@ -24,7 +24,7 @@ help:
 	@echo "  make restart              — restart api"
 	@echo "  make test                 — pytest locally ($(PYTEST_ARGS))"
 	@echo "  make test-docker          — pytest inside compose (same DB as api)"
-	@echo "  make test-docker-cov      — pytest + coverage (pyproject.toml, fail-under 80%)"
+	@echo "  make test-docker-cov      — pytest + coverage (pyproject.toml fail_under)"
 	@echo "  make alembic-upgrade      — alembic upgrade head (one-off api container)"
 	@echo "  make alembic-revision MSG=... — create empty revision (set MSG)"
 	@echo "  make load-test-overbooking — 100 concurrent POST /bookings (needs up)"
