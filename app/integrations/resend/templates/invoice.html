@@ -1,12 +1,107 @@
-{% extends "base.html" %}
-{% block content %}
-<p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
-<p style="margin:0 0 12px 0;">Please find your invoice attached or summarized below.</p>
-{% if booking_reference %}
-<p style="margin:0 0 12px 0;"><strong>Booking reference:</strong> {{ booking_reference }}</p>
-{% endif %}
-{% if amount_due %}
-<p style="margin:0;"><strong>Amount due:</strong> {{ amount_due }}</p>
-{% endif %}
-{% block invoice_body %}{% endblock %}
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice — {{ property_name }}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: DejaVu Sans, Helvetica, Arial, sans-serif; font-size: 11px; color: #111827; margin: 0; }
+    h1 { font-size: 20px; margin: 0 0 4px 0; }
+    .muted { color: #6b7280; font-size: 10px; }
+    .header { margin-bottom: 16px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+    .grid { width: 100%; margin-bottom: 16px; }
+    .grid td { vertical-align: top; width: 50%; padding: 0 8px 0 0; }
+    table.ledger { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    table.ledger th, table.ledger td { border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; }
+    table.ledger th { background: #f3f4f6; font-weight: 600; }
+    table.ledger td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .totals { width: 100%; max-width: 280px; margin-left: auto; margin-top: 8px; }
+    .totals td { padding: 4px 0; }
+    .totals td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .tax-box { margin-top: 12px; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; }
+    .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 9px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Invoice</h1>
+    <p class="muted">Generated {{ generated_at }} · {{ currency_code }}</p>
+    <p style="margin:8px 0 0 0;font-size:14px;font-weight:600;">{{ property_name }}</p>
+  </div>
+
+  <table class="grid">
+    <tr>
+      <td>
+        <strong>Guest</strong><br />
+        {{ guest_display }}
+      </td>
+      <td>
+        <strong>Booking</strong><br />
+        ID: {{ booking_id }}<br />
+        {% if external_booking_id %}External ref: {{ external_booking_id }}<br />{% endif %}
+        Status: {{ booking_status }}<br />
+        {% if check_in and check_out %}
+        Stay: {{ check_in }} → {{ check_out }} (checkout)<br />
+        {% endif %}
+        {% if room_display %}Room: {{ room_display }}<br />{% endif %}
+      </td>
+    </tr>
+  </table>
+
+  <strong>Folio</strong>
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th>Posted</th>
+        <th>Type</th>
+        <th>Category</th>
+        <th>Description</th>
+        <th class="num">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if folio_rows %}
+        {% for row in folio_rows %}
+        <tr>
+          <td>{{ row.posted_at }}</td>
+          <td>{{ row.tx_type }}</td>
+          <td>{{ row.category }}</td>
+          <td>{{ row.description }}</td>
+          <td class="num">{{ row.amount }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="5" class="muted">No folio transactions.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if tax %}
+  <div class="tax-box">
+    <strong>Tax ({{ tax.mode }}) — {{ tax.name }}</strong>
+    <p class="muted" style="margin:4px 0;">Rate: {{ tax.rate_pct }}%</p>
+    {% for line in tax.summary_lines %}
+    <p style="margin:2px 0;">{{ line }}</p>
+    {% endfor %}
+    <table class="totals" style="max-width:320px;margin-top:8px;">
+      <tr><td>Net</td><td class="num">{{ tax.net }}</td></tr>
+      <tr><td>{{ tax.name }}</td><td class="num">{{ tax.tax_amount }}</td></tr>
+      <tr><td><strong>Gross</strong></td><td class="num"><strong>{{ tax.gross }}</strong></td></tr>
+    </table>
+  </div>
+  {% endif %}
+
+  <table class="totals">
+    <tr><td>Charges (sum)</td><td class="num">{{ charges_total }}</td></tr>
+    <tr><td>Payments (sum)</td><td class="num">{{ payments_total }}</td></tr>
+    <tr><td><strong>Balance due</strong></td><td class="num"><strong>{{ balance_due }}</strong></td></tr>
+  </table>
+
+  <div class="footer">
+    This document was generated electronically and is valid without signature unless local law requires otherwise.
+  </div>
+</body>
+</html>
