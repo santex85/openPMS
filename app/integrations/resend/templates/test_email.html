@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">This is a test message from OpenPMS.</p>
+{% if property_name %}
+<p style="margin:0 0 8px 0;"><strong>Property:</strong> {{ property_name }}</p>
+{% endif %}
+{% if sender_name %}
+<p style="margin:0;"><strong>Sender name:</strong> {{ sender_name }}</p>
+{% endif %}
+{% endblock %}

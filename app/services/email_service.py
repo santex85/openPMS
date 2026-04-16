@@ -127,6 +127,33 @@ async def send_booking_email(
     )
 
 
+async def send_property_test_email(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    property_id: UUID,
+    property_name: str,
+    sender_display: str,
+    to_address: str,
+) -> None:
+    ctx: dict[str, Any] = {
+        "sender_name": sender_display,
+        "property_name": property_name,
+    }
+    html = render_email("test_email.html", ctx)
+    subject = f"Test email — {property_name}"
+    await send_booking_email(
+        session,
+        tenant_id,
+        to_address.strip(),
+        subject,
+        html,
+        property_id=property_id,
+        booking_id=None,
+        template_name="test_email",
+    )
+
+
 def _stay_summary(
     lines: list[Any],
 ) -> tuple[str, str, int]:

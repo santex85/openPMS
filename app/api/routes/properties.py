@@ -3,12 +3,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.api.deps import (
     SessionDep,
     TenantIdDep,
+    UserIdDep,
     chain_dependency_runners,
+    require_jwt_user,
     require_roles,
     require_scopes,
 )
@@ -18,8 +20,11 @@ from app.schemas.email_settings import EmailSettingsPut, EmailSettingsRead
 from app.schemas.property import PropertyCreate, PropertyPatch, PropertyRead
 from app.schemas.tax_config import TaxConfigCreate, TaxConfigRead
 from app.services import property_service, tax_service
+from app.services.auth_service import get_user
+from app.services.email_service import send_property_test_email
 from app.services.email_settings_service import get_email_settings, upsert_email_settings
 from app.services.audit_service import record_audit
+from app.core.config import get_settings
 from app.core.rate_limit import limiter
 
 router = APIRouter()
@@ -37,6 +42,16 @@ PropertyWriteRolesDep = Annotated[
     None,
     Depends(
         chain_dependency_runners(
+            require_roles("owner", "manager"),
+            require_scopes(PROPERTIES_WRITE),
+        ),
+    ),
+]
+PropertyEmailTestWriteDep = Annotated[
+    None,
+    Depends(
+        chain_dependency_runners(
+            require_jwt_user(),
             require_roles("owner", "manager"),
             require_scopes(PROPERTIES_WRITE),
         ),
@@ -213,6 +228,67 @@ async def put_property_email_settings(
         new_values=body.model_dump(mode="json"),
     )
     return EmailSettingsRead.model_validate(row)
+
+
+@router.post(
+    "/{property_id}/email/test",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send a test email to the current user",
+)
+async def post_property_email_test(
+    _: PropertyEmailTestWriteDep,
+    property_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    user_id: UserIdDep,
+) -> Response:
+    settings = get_settings()
+    if not (settings.resend_api_key or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Resend API key is not configured",
+        )
+    prop = await property_service.get_property(session, tenant_id, property_id)
+    if prop is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
+    es_row = await get_email_settings(session, tenant_id, property_id)
+    if es_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email settings not found; save settings first",
+        )
+    user = await get_user(session, tenant_id, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    to_addr = (user.email or "").strip()
+    if not to_addr or to_addr.lower().endswith(".invalid"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="User has no valid email for test delivery",
+        )
+    await send_property_test_email(
+        session,
+        tenant_id,
+        property_id=property_id,
+        property_name=prop.name,
+        sender_display=es_row.sender_name,
+        to_address=to_addr,
+    )
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="property.email_test",
+        entity_type="property",
+        entity_id=property_id,
+        new_values={"to": to_addr},
+    )
+    return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.delete(

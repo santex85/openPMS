@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -124,6 +125,67 @@ def test_booking_email_logs_empty_and_sorted(
     assert arr[0]["id"] == str(log_new_id)
     assert arr[0]["template_name"] == "t_new"
     assert arr[1]["id"] == str(log_old_id)
+
+
+def test_post_property_email_test_404_without_settings(
+    client: object,
+    auth_headers_user: object,
+    smoke_scenario: dict[str, object],
+) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    tid: UUID = smoke_scenario["tenant_id"]  # type: ignore[assignment]
+    oid: UUID = smoke_scenario["owner_id"]  # type: ignore[assignment]
+    pid: UUID = smoke_scenario["property_id"]  # type: ignore[assignment]
+    hdrs = auth_headers_user(tid, oid, role="owner")
+    r = client.post(f"/properties/{pid}/email/test", headers=hdrs)
+    assert r.status_code == 404
+
+
+def test_post_property_email_test_422_and_202(
+    client: object,
+    auth_headers_user: object,
+    smoke_scenario: dict[str, object],
+) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    tid: UUID = smoke_scenario["tenant_id"]  # type: ignore[assignment]
+    oid: UUID = smoke_scenario["owner_id"]  # type: ignore[assignment]
+    pid: UUID = smoke_scenario["property_id"]  # type: ignore[assignment]
+    hdrs = auth_headers_user(tid, oid, role="owner")
+    body = {
+        "sender_name": "Test Sender",
+        "reply_to": "reply@example.com",
+        "logo_url": None,
+        "locale": "en",
+    }
+    assert (
+        client.put(
+            f"/properties/{pid}/email-settings",
+            headers=hdrs,
+            json=body,
+        ).status_code
+        == 200
+    )
+
+    with patch(
+        "app.core.config.get_settings",
+        return_value=MagicMock(resend_api_key=""),
+    ):
+        r_422 = client.post(f"/properties/{pid}/email/test", headers=hdrs)
+    assert r_422.status_code == 422
+
+    with patch(
+        "app.services.email_service.send_email",
+        new_callable=AsyncMock,
+        return_value="re_msg_test",
+    ):
+        with patch(
+            "app.core.config.get_settings",
+            return_value=MagicMock(resend_api_key="re_secret"),
+        ):
+            r_202 = client.post(f"/properties/{pid}/email/test", headers=hdrs)
+    assert r_202.status_code == 202
 
 
 def test_booking_email_logs_not_visible_cross_tenant(
