@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from pypdf import PdfReader
 
 from app.models.billing.tax_config import TaxConfig, TaxMode
 from app.models.bookings.booking import Booking
@@ -198,6 +200,17 @@ def _weasyprint_or_skip() -> None:
         )
 
 
+def _pdf_extract_text(pdf: bytes) -> str:
+    """Decoded text from PDF (streams are compressed; use pypdf, not raw bytes)."""
+    reader = PdfReader(BytesIO(pdf))
+    parts: list[str] = []
+    for page in reader.pages:
+        raw = page.extract_text()
+        if raw:
+            parts.append(raw)
+    return "\n".join(parts)
+
+
 @pytest.mark.asyncio
 async def test_generate_invoice_pdf_magic_bytes() -> None:
     _weasyprint_or_skip()
@@ -213,8 +226,9 @@ async def test_generate_invoice_pdf_magic_bytes() -> None:
         generated_at=_now(),
     )
     assert pdf[:4] == b"%PDF"
-    assert b"Invoice" in pdf
-    assert b"Seaside Inn" in pdf
+    text = _pdf_extract_text(pdf)
+    assert "Invoice" in text
+    assert "Seaside Inn" in text
 
 
 @pytest.mark.asyncio
@@ -242,7 +256,7 @@ async def test_generate_invoice_pdf_includes_tax_phrase_in_bytes() -> None:
         generated_at=now,
     )
     assert pdf[:4] == b"%PDF"
-    assert b"Includes VAT" in pdf
+    assert "Includes VAT" in _pdf_extract_text(pdf)
 
 
 @pytest.mark.asyncio
@@ -270,8 +284,9 @@ async def test_generate_invoice_pdf_exclusive_tax_shows_gross_in_bytes() -> None
         generated_at=now,
     )
     assert pdf[:4] == b"%PDF"
-    assert b"Gross" in pdf
-    assert b"exclusive" in pdf
+    text = _pdf_extract_text(pdf)
+    assert "Gross" in text
+    assert "exclusive" in text
 
 
 @pytest.mark.asyncio
@@ -299,4 +314,4 @@ async def test_generate_invoice_pdf_tax_off_no_tax_box_in_bytes() -> None:
         generated_at=now,
     )
     assert pdf[:4] == b"%PDF"
-    assert b"Tax (" not in pdf
+    assert "Tax (" not in _pdf_extract_text(pdf)

@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.notifications.email_log import EmailLog
 
@@ -24,7 +24,6 @@ def test_email_settings_get_404_put_get(
     client: object,
     auth_headers: object,
     smoke_scenario: dict[str, object],
-    db_engine: object,
 ) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
@@ -57,7 +56,6 @@ def test_booking_email_logs_empty_and_sorted(
     client: object,
     auth_headers: object,
     tenant_isolation_booking_scenario: dict[str, object],
-    db_engine: object,
 ) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
@@ -76,45 +74,51 @@ def test_booking_email_logs_empty_and_sorted(
     log_new_id = uuid4()
 
     async def _seed_logs() -> None:
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
-        async with factory() as session:
-            async with session.begin():
-                await session.execute(
-                    text(
-                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
-                    ),
-                    {"tid": str(tid_a)},
-                )
-                session.add(
-                    EmailLog(
-                        id=log_old_id,
-                        tenant_id=tid_a,
-                        property_id=pid,
-                        booking_id=bid,
-                        to_address="a@example.com",
-                        template_name="t_old",
-                        subject="S1",
-                        status="sent",
-                        resend_id="r1",
-                        error_message=None,
-                        sent_at=t_old,
-                    ),
-                )
-                session.add(
-                    EmailLog(
-                        id=log_new_id,
-                        tenant_id=tid_a,
-                        property_id=pid,
-                        booking_id=bid,
-                        to_address="b@example.com",
-                        template_name="t_new",
-                        subject="S2",
-                        status="failed",
-                        resend_id=None,
-                        error_message="x",
-                        sent_at=t_new,
-                    ),
-                )
+        url = _database_url()
+        assert url
+        engine = create_async_engine(url)
+        try:
+            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            async with factory() as session:
+                async with session.begin():
+                    await session.execute(
+                        text(
+                            "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                        ),
+                        {"tid": str(tid_a)},
+                    )
+                    session.add(
+                        EmailLog(
+                            id=log_old_id,
+                            tenant_id=tid_a,
+                            property_id=pid,
+                            booking_id=bid,
+                            to_address="a@example.com",
+                            template_name="t_old",
+                            subject="S1",
+                            status="sent",
+                            resend_id="r1",
+                            error_message=None,
+                            sent_at=t_old,
+                        ),
+                    )
+                    session.add(
+                        EmailLog(
+                            id=log_new_id,
+                            tenant_id=tid_a,
+                            property_id=pid,
+                            booking_id=bid,
+                            to_address="b@example.com",
+                            template_name="t_new",
+                            subject="S2",
+                            status="failed",
+                            resend_id=None,
+                            error_message="x",
+                            sent_at=t_new,
+                        ),
+                    )
+        finally:
+            await engine.dispose()
 
     asyncio.run(_seed_logs())
 
@@ -138,7 +142,11 @@ def test_post_property_email_test_404_without_settings(
     oid: UUID = smoke_scenario["owner_id"]  # type: ignore[assignment]
     pid: UUID = smoke_scenario["property_id"]  # type: ignore[assignment]
     hdrs = auth_headers_user(tid, oid, role="owner")
-    r = client.post(f"/properties/{pid}/email/test", headers=hdrs)
+    with patch(
+        "app.api.routes.properties.get_settings",
+        return_value=MagicMock(resend_api_key="re_test_key"),
+    ):
+        r = client.post(f"/properties/{pid}/email/test", headers=hdrs)
     assert r.status_code == 404
 
 
@@ -169,7 +177,7 @@ def test_post_property_email_test_422_and_202(
     )
 
     with patch(
-        "app.core.config.get_settings",
+        "app.api.routes.properties.get_settings",
         return_value=MagicMock(resend_api_key=""),
     ):
         r_422 = client.post(f"/properties/{pid}/email/test", headers=hdrs)
@@ -181,7 +189,7 @@ def test_post_property_email_test_422_and_202(
         return_value="re_msg_test",
     ):
         with patch(
-            "app.core.config.get_settings",
+            "app.api.routes.properties.get_settings",
             return_value=MagicMock(resend_api_key="re_secret"),
         ):
             r_202 = client.post(f"/properties/{pid}/email/test", headers=hdrs)
