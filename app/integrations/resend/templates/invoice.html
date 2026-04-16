@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
+<p style="margin:0 0 12px 0;">Please find your invoice attached or summarized below.</p>
+{% if booking_reference %}
+<p style="margin:0 0 12px 0;"><strong>Booking reference:</strong> {{ booking_reference }}</p>
+{% endif %}
+{% if amount_due %}
+<p style="margin:0;"><strong>Amount due:</strong> {{ amount_due }}</p>
+{% endif %}
+{% block invoice_body %}{% endblock %}
+{% endblock %}

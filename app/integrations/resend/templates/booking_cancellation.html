@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
+<p style="margin:0 0 12px 0;">Your booking has been cancelled as requested.</p>
+{% if booking_reference %}
+<p style="margin:0;"><strong>Reference:</strong> {{ booking_reference }}</p>
+{% endif %}
+{% endblock %}

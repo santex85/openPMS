@@ -150,6 +150,14 @@ class Settings(BaseSettings):
             "Defaults to jwt_secret (HS256) or webhook_secret_fernet_key material when unset."
         ),
     )
+    resend_api_key: str = Field(
+        default="",
+        description="Resend API key (re_...). Empty disables outbound email until configured.",
+    )
+    email_from_default: str = Field(
+        default="noreply@openpms.app",
+        description='Default "from" address for transactional email (Resend-verified domain).',
+    )
 
     @model_validator(mode="after")
     def validate_jwt_config(self) -> Self:

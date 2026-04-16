@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
+<p style="margin:0 0 12px 0;">Your booking is confirmed. We look forward to welcoming you.</p>
+{% if booking_reference %}
+<p style="margin:0 0 8px 0;"><strong>Reference:</strong> {{ booking_reference }}</p>
+{% endif %}
+{% if check_in or check_out %}
+<p style="margin:0;">
+  {% if check_in %}<strong>Check-in:</strong> {{ check_in }}{% endif %}
+  {% if check_in and check_out %}<br />{% endif %}
+  {% if check_out %}<strong>Check-out:</strong> {{ check_out }}{% endif %}
+</p>
+{% endif %}
+{% endblock %}
