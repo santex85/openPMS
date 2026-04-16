@@ -17,6 +17,7 @@ from app.services.channex_booking_service import (
     ChannexIngestResult,
     ingest_channex_booking,
 )
+from app.services.email_service import dispatch_channex_booking_emails
 from app.services.channex_service import _client_for_link
 from app.worker import celery_app
 
@@ -81,6 +82,8 @@ async def _run_channex_retry_booking_revision(
                         revision_id=str(openpms_revision_id),
                         channex_revision_id=ack_revision_id,
                     )
+        if ingest_out is not None and ingest_out.success:
+            await dispatch_channex_booking_emails(factory, ingest_out)
     finally:
         await engine.dispose()
 

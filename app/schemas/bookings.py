@@ -2,7 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -205,3 +205,19 @@ class BookingUnpaidFolioSummaryRead(BaseModel):
         None,
         description="Guest full name for dashboard display.",
     )
+
+
+class SendInvoiceRequest(BaseModel):
+    """Optional body for POST /bookings/{id}/send-invoice."""
+
+    email: str | None = Field(
+        None,
+        max_length=320,
+        description="Recipient override; defaults to guest email on the booking.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @classmethod
+    def from_body(cls, raw: dict[str, Any]) -> "SendInvoiceRequest":
+        return cls.model_validate(raw or {})

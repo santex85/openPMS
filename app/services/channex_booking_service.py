@@ -159,6 +159,8 @@ class ChannexIngestResult:
     room_type_id: UUID | None
     date_strs: tuple[str, ...]
     success: bool = True
+    email_confirmation_booking_id: UUID | None = None
+    email_cancellation_booking_id: UUID | None = None
 
 
 def _sorted_date_strs(dates: list[date]) -> tuple[str, ...]:
@@ -360,6 +362,8 @@ async def ingest_channex_booking(
     guest_pl = _guest_payload_from_channex(payload, fallback_key=cx_booking_external)
 
     dates_for_push: list[date] = []
+    email_confirmation_booking_id: UUID | None = None
+    email_cancellation_booking_id: UUID | None = None
 
     try:
         if status_raw == "cancelled":
@@ -404,6 +408,7 @@ async def ingest_channex_booking(
                         decrement_booked_rooms(rows, 1)
                         dates_for_push.extend(old_nights)
                 booking.status = "cancelled"
+                email_cancellation_booking_id = booking.id
             rev_row.openpms_booking_id = booking.id
             rev_row.processing_status = "done"
             rev_row.error_message = None
@@ -636,6 +641,7 @@ async def ingest_channex_booking(
             rev_row.processed_at = now
             link_row.last_sync_at = now  # type: ignore[assignment]
             await session.flush()
+            email_confirmation_booking_id = booking.id
 
     except InsufficientInventoryError as exc:
         log.warning(
@@ -720,6 +726,8 @@ async def ingest_channex_booking(
         property_id=property_id,
         room_type_id=room_type_id,
         date_strs=_sorted_date_strs(dates_for_push),
+        email_confirmation_booking_id=email_confirmation_booking_id,
+        email_cancellation_booking_id=email_cancellation_booking_id,
     )
 
 

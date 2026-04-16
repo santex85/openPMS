@@ -6,7 +6,12 @@
 <p style="margin:0 0 12px 0;"><strong>Booking reference:</strong> {{ booking_reference }}</p>
 {% endif %}
 {% if amount_due %}
-<p style="margin:0;"><strong>Amount due:</strong> {{ amount_due }}</p>
+<p style="margin:0;">
+  <strong>Amount due:</strong> {{ amount_due }}{% if currency %} {{ currency }}{% endif %}
+</p>
+{% endif %}
+{% if property_name %}
+<p style="margin:12px 0 0 0;"><strong>{{ property_name }}</strong></p>
 {% endif %}
 {% block invoice_body %}{% endblock %}
 {% endblock %}

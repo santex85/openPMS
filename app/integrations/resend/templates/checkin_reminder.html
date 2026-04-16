@@ -1,11 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
 <p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
-<p style="margin:0 0 12px 0;">This is a friendly reminder: your check-in is coming up soon.</p>
+<p style="margin:0 0 12px 0;">This is a friendly reminder: your check-in is tomorrow.</p>
 {% if booking_reference %}
 <p style="margin:0 0 8px 0;"><strong>Reference:</strong> {{ booking_reference }}</p>
 {% endif %}
-{% if check_in %}
-<p style="margin:0;"><strong>Check-in:</strong> {{ check_in }}</p>
+{% if room_type_name %}
+<p style="margin:0 0 8px 0;"><strong>Room type:</strong> {{ room_type_name }}{% if room_name %} ({{ room_name }}){% endif %}</p>
+{% endif %}
+{% if check_in or check_out %}
+<p style="margin:0;">
+  {% if check_in %}<strong>Check-in:</strong> {{ check_in }}{% endif %}
+  {% if check_in and check_out %}<br />{% endif %}
+  {% if check_out %}<strong>Check-out:</strong> {{ check_out }}{% endif %}
+</p>
+{% endif %}
+{% if property and property.name %}
+<p style="margin:12px 0 0 0;">See you at <strong>{{ property.name }}</strong>.</p>
 {% endif %}
 {% endblock %}

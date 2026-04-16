@@ -33,4 +33,8 @@ celery_app.conf.beat_schedule = {
         "task": "channex_full_ari_sync_all_properties",
         "schedule": crontab(hour=2, minute=0),
     },
+    "send-checkin-reminders-daily": {
+        "task": "send_checkin_reminders",
+        "schedule": crontab(hour=9, minute=0),
+    },
 }

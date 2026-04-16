@@ -3,6 +3,22 @@
 <p style="margin:0 0 12px 0;">Hello{% if guest_name %}, {{ guest_name }}{% endif %},</p>
 <p style="margin:0 0 12px 0;">Your booking has been cancelled as requested.</p>
 {% if booking_reference %}
-<p style="margin:0;"><strong>Reference:</strong> {{ booking_reference }}</p>
+<p style="margin:0 0 8px 0;"><strong>Reference:</strong> {{ booking_reference }}</p>
+{% endif %}
+{% if room_type_name %}
+<p style="margin:0 0 8px 0;"><strong>Room type:</strong> {{ room_type_name }}</p>
+{% endif %}
+{% if check_in or check_out %}
+<p style="margin:0 0 8px 0;">
+  {% if check_in %}<strong>Was check-in:</strong> {{ check_in }}{% endif %}
+  {% if check_in and check_out %}<br />{% endif %}
+  {% if check_out %}<strong>Was check-out:</strong> {{ check_out }}{% endif %}
+</p>
+{% endif %}
+{% if cancellation_policy %}
+<p style="margin:0 0 8px 0;"><strong>Cancellation policy:</strong> {{ cancellation_policy }}</p>
+{% endif %}
+{% if property and property.name %}
+<p style="margin:12px 0 0 0;"><strong>{{ property.name }}</strong></p>
 {% endif %}
 {% endblock %}

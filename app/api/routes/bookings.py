@@ -1,12 +1,13 @@
 """Bookings REST API."""
 
 from datetime import UTC, date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     HTTPException,
     Query,
@@ -35,6 +36,7 @@ from app.schemas.bookings import (
     BookingTapePage,
     BookingTapeRead,
     BookingUnpaidFolioSummaryRead,
+    SendInvoiceRequest,
 )
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.schemas.booking_receipt import BookingReceiptRead
@@ -71,6 +73,11 @@ from app.services.pricing_service import MissingRatesError
 from app.services.audit_service import record_audit
 from app.services.channex_ari_triggers import schedule_push_channex_availability
 from app.services.stay_dates import iter_stay_nights
+from app.services.email_service import (
+    run_send_booking_confirmation_task,
+    run_send_cancellation_email_task,
+    send_invoice_email_for_booking,
+)
 from app.services.webhook_runner import (
     booking_quick_snapshot,
     emit_availability_for_dates,
@@ -304,6 +311,52 @@ async def get_booking_receipt(
 
 
 @router.post(
+    "/{booking_id}/send-invoice",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Email invoice PDF to guest",
+)
+@limiter.limit("60/minute")
+async def post_send_booking_invoice(
+    request: Request,
+    _: BookingsWriteRolesDep,
+    booking_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+    raw_body: dict[str, Any] = Body(default_factory=dict),
+) -> Response:
+    body = SendInvoiceRequest.from_body(raw_body)
+    try:
+        await send_invoice_email_for_booking(
+            session,
+            tenant_id,
+            booking_id,
+            to_override=body.email,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "no valid email" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=detail,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail,
+        ) from exc
+
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="booking.send_invoice",
+        entity_type="booking",
+        entity_id=booking_id,
+        new_values={"email_override": body.email},
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post(
     "/{booking_id}/folio",
     response_model=FolioTransactionRead,
     status_code=status.HTTP_201_CREATED,
@@ -483,6 +536,13 @@ async def patch_booking_by_id(
         cancellation_reason=body.cancellation_reason,
         folio_balance_on_checkout=folio_for_hook,
     )
+    if as_c == "cancelled" and bs_c != "cancelled":
+        background_tasks.add_task(
+            run_send_cancellation_email_task,
+            factory,
+            tenant_id,
+            booking_id,
+        )
 
     avail_touch = False
     if {"check_in", "check_out"} & patch_data.keys():
@@ -583,6 +643,12 @@ async def post_booking(
     factory = request.app.state.async_session_factory
     background_tasks.add_task(
         run_booking_created_webhook,
+        factory,
+        tenant_id,
+        out.booking_id,
+    )
+    background_tasks.add_task(
+        run_send_booking_confirmation_task,
         factory,
         tenant_id,
         out.booking_id,

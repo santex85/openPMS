@@ -5,11 +5,25 @@
 {% if booking_reference %}
 <p style="margin:0 0 8px 0;"><strong>Reference:</strong> {{ booking_reference }}</p>
 {% endif %}
+{% if nights %}
+<p style="margin:0 0 8px 0;"><strong>Nights:</strong> {{ nights }}</p>
+{% endif %}
+{% if room_type_name %}
+<p style="margin:0 0 8px 0;"><strong>Room type:</strong> {{ room_type_name }}{% if room_name %} ({{ room_name }}){% endif %}</p>
+{% endif %}
+{% if total_amount and currency %}
+<p style="margin:0 0 8px 0;"><strong>Total:</strong> {{ total_amount }} {{ currency }}</p>
+{% elif total_amount %}
+<p style="margin:0 0 8px 0;"><strong>Total:</strong> {{ total_amount }}</p>
+{% endif %}
 {% if check_in or check_out %}
 <p style="margin:0;">
   {% if check_in %}<strong>Check-in:</strong> {{ check_in }}{% endif %}
   {% if check_in and check_out %}<br />{% endif %}
   {% if check_out %}<strong>Check-out:</strong> {{ check_out }}{% endif %}
 </p>
+{% endif %}
+{% if property and property.name %}
+<p style="margin:12px 0 0 0;"><strong>{{ property.name }}</strong></p>
 {% endif %}
 {% endblock %}

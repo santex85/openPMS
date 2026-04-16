@@ -14,6 +14,7 @@ from app.integrations.channex.client import ChannexApiError
 from app.models.integrations.channex_property_link import ChannexPropertyLink
 from app.models.integrations.channex_webhook_log import ChannexWebhookLog
 from app.services.channex_booking_service import ChannexIngestResult, ingest_channex_booking
+from app.services.email_service import dispatch_channex_booking_emails
 from app.services.channex_service import _client_for_link
 from app.worker import celery_app
 
@@ -127,6 +128,8 @@ async def _run_channex_process_webhook(webhook_log_id: UUID) -> None:
                     log.warning("channex_webhook_no_property_in_payload")
 
                 wl.processed = True
+        if ingest_out is not None and ingest_out.success:
+            await dispatch_channex_booking_emails(factory, ingest_out)
     finally:
         await engine.dispose()
 
