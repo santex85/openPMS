@@ -65,6 +65,30 @@ async def _log_email(
     await session.flush()
 
 
+async def _checkin_reminder_sent_today(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+) -> bool:
+    """True if a successful check-in reminder was already logged for this UTC day."""
+    now = datetime.now(timezone.utc)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    existing = await session.scalar(
+        select(EmailLog.id)
+        .where(
+            EmailLog.tenant_id == tenant_id,
+            EmailLog.booking_id == booking_id,
+            EmailLog.template_name == "checkin_reminder",
+            EmailLog.status == "sent",
+            EmailLog.sent_at >= day_start,
+            EmailLog.sent_at < day_end,
+        )
+        .limit(1),
+    )
+    return existing is not None
+
+
 async def send_booking_email(
     session: AsyncSession,
     tenant_id: UUID,
@@ -294,6 +318,8 @@ async def send_checkin_reminder_email(
     if booking.status != "confirmed":
         return
     if not _guest_may_receive_email(guest):
+        return
+    if await _checkin_reminder_sent_today(session, tenant_id, booking.id):
         return
     lines = list(booking.lines) if booking.lines else []
     ci, co, _ = _stay_summary(lines)

@@ -188,8 +188,7 @@ def test_build_invoice_pdf_context_empty_folio() -> None:
     assert ctx["balance_due"] == "0.00 THB"
 
 
-@pytest.mark.asyncio
-async def test_generate_invoice_pdf_magic_bytes() -> None:
+def _weasyprint_or_skip() -> None:
     try:
         import weasyprint  # noqa: F401
     except OSError:
@@ -197,6 +196,11 @@ async def test_generate_invoice_pdf_magic_bytes() -> None:
             "WeasyPrint native libraries unavailable on this host "
             "(install GTK/Pango stack or run tests in Docker runtime image).",
         )
+
+
+@pytest.mark.asyncio
+async def test_generate_invoice_pdf_magic_bytes() -> None:
+    _weasyprint_or_skip()
 
     prop, booking, guest, line, charge = _base_entities()
     pdf = await generate_invoice_pdf(
@@ -210,3 +214,89 @@ async def test_generate_invoice_pdf_magic_bytes() -> None:
     )
     assert pdf[:4] == b"%PDF"
     assert b"Invoice" in pdf
+    assert b"Seaside Inn" in pdf
+
+
+@pytest.mark.asyncio
+async def test_generate_invoice_pdf_includes_tax_phrase_in_bytes() -> None:
+    _weasyprint_or_skip()
+    prop, booking, guest, line, charge = _base_entities()
+    now = _now()
+    tax = TaxConfig(
+        id=uuid4(),
+        tenant_id=booking.tenant_id,
+        property_id=booking.property_id,
+        tax_mode=TaxMode.inclusive,
+        tax_name="VAT",
+        tax_rate=Decimal("0.07"),
+        created_at=now,
+        updated_at=now,
+    )
+    pdf = await generate_invoice_pdf(
+        booking,
+        [charge],
+        tax,
+        prop,
+        guest=guest,
+        booking_lines=[line],
+        generated_at=now,
+    )
+    assert pdf[:4] == b"%PDF"
+    assert b"Includes VAT" in pdf
+
+
+@pytest.mark.asyncio
+async def test_generate_invoice_pdf_exclusive_tax_shows_gross_in_bytes() -> None:
+    _weasyprint_or_skip()
+    prop, booking, guest, line, charge = _base_entities()
+    now = _now()
+    tax = TaxConfig(
+        id=uuid4(),
+        tenant_id=booking.tenant_id,
+        property_id=booking.property_id,
+        tax_mode=TaxMode.exclusive,
+        tax_name="VAT",
+        tax_rate=Decimal("0.10"),
+        created_at=now,
+        updated_at=now,
+    )
+    pdf = await generate_invoice_pdf(
+        booking,
+        [charge],
+        tax,
+        prop,
+        guest=guest,
+        booking_lines=[line],
+        generated_at=now,
+    )
+    assert pdf[:4] == b"%PDF"
+    assert b"Gross" in pdf
+    assert b"exclusive" in pdf
+
+
+@pytest.mark.asyncio
+async def test_generate_invoice_pdf_tax_off_no_tax_box_in_bytes() -> None:
+    _weasyprint_or_skip()
+    prop, booking, guest, line, charge = _base_entities()
+    now = _now()
+    tax = TaxConfig(
+        id=uuid4(),
+        tenant_id=booking.tenant_id,
+        property_id=booking.property_id,
+        tax_mode=TaxMode.off,
+        tax_name="None",
+        tax_rate=Decimal("0"),
+        created_at=now,
+        updated_at=now,
+    )
+    pdf = await generate_invoice_pdf(
+        booking,
+        [charge],
+        tax,
+        prop,
+        guest=guest,
+        booking_lines=[line],
+        generated_at=now,
+    )
+    assert pdf[:4] == b"%PDF"
+    assert b"Tax (" not in pdf

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 import structlog
@@ -22,11 +22,17 @@ from app.worker import celery_app
 log = structlog.get_logger()
 
 
+def checkin_reminder_target_date(*, now_utc: datetime | None = None) -> date:
+    """Calendar date used as check-in day for reminders (tomorrow in UTC)."""
+    ref = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    return ref.date() + timedelta(days=1)
+
+
 async def _send_checkin_reminders_async() -> None:
     settings = get_settings()
     engine, factory = create_async_engine_and_sessionmaker(settings)
     try:
-        target_date = datetime.now(timezone.utc).date() + timedelta(days=1)
+        target_date = checkin_reminder_target_date()
         async with factory() as session:
             res = await session.execute(
                 text(
