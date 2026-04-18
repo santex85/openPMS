@@ -21,7 +21,6 @@ from app.core.stripe_secrets import encrypt_stripe_account_id
 from app.models.auth.user import User
 from app.models.billing.stripe_charge import StripeCharge
 from app.models.billing.stripe_connection import StripeConnection
-from app.models.billing.stripe_payment_method import StripePaymentMethod
 from app.models.bookings.booking import Booking
 from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
@@ -59,7 +58,9 @@ def _seed_stripe_payment_scenario(db_engine: object) -> dict[str, UUID]:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 session.add(
@@ -165,7 +166,9 @@ def test_save_payment_method_success(client, db_engine, auth_headers_user) -> No
     assert data["stripe_pm_id"] == "pm_test_save_1"
 
 
-def test_list_payment_methods_and_booking_filter(client, db_engine, auth_headers_user) -> None:
+def test_list_payment_methods_and_booking_filter(
+    client, db_engine, auth_headers_user
+) -> None:
     if not os.environ.get("DATABASE_URL") and not os.environ.get("TEST_DATABASE_URL"):
         pytest.skip("DATABASE_URL required")
     scenario = _seed_stripe_payment_scenario(db_engine)
@@ -234,7 +237,9 @@ def test_delete_payment_method_twice(client, db_engine, auth_headers_user) -> No
     assert d2.status_code == 404
 
 
-def test_charge_success_folio_stripe_source(client, db_engine, auth_headers_user) -> None:
+def test_charge_success_folio_stripe_source(
+    client, db_engine, auth_headers_user
+) -> None:
     if not os.environ.get("DATABASE_URL") and not os.environ.get("TEST_DATABASE_URL"):
         pytest.skip("DATABASE_URL required")
     scenario = _seed_stripe_payment_scenario(db_engine)
@@ -273,20 +278,28 @@ def test_charge_success_folio_stripe_source(client, db_engine, auth_headers_user
     try:
 
         async def _check_folio() -> None:
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 rows = (
-                    await session.execute(
-                        select(FolioTransaction).where(
-                            FolioTransaction.tenant_id == tid,
-                            FolioTransaction.booking_id == bid,
-                        ),
+                    (
+                        await session.execute(
+                            select(FolioTransaction).where(
+                                FolioTransaction.tenant_id == tid,
+                                FolioTransaction.booking_id == bid,
+                            ),
+                        )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 assert len(rows) == 1
                 assert rows[0].source_channel == "stripe"
                 assert rows[0].transaction_type == "Payment"
@@ -332,23 +345,37 @@ def test_charge_stripe_error_no_folio(client, db_engine, auth_headers_user) -> N
     try:
 
         async def _check() -> None:
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 folio_n = (
-                    await session.execute(
-                        select(FolioTransaction).where(FolioTransaction.booking_id == bid),
+                    (
+                        await session.execute(
+                            select(FolioTransaction).where(
+                                FolioTransaction.booking_id == bid
+                            ),
+                        )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 assert len(folio_n) == 0
                 ch = (
-                    await session.execute(
-                        select(StripeCharge).where(StripeCharge.booking_id == bid),
+                    (
+                        await session.execute(
+                            select(StripeCharge).where(StripeCharge.booking_id == bid),
+                        )
                     )
-                ).scalars().first()
+                    .scalars()
+                    .first()
+                )
                 assert ch is not None
                 assert ch.status == "failed"
 
@@ -529,7 +556,6 @@ def test_charge_other_tenant_booking_404(
 ) -> None:
     if not os.environ.get("DATABASE_URL") and not os.environ.get("TEST_DATABASE_URL"):
         pytest.skip("DATABASE_URL required")
-    tid_a: UUID = tenant_isolation_booking_scenario["tenant_a"]  # type: ignore[assignment]
     tid_b: UUID = tenant_isolation_booking_scenario["tenant_b"]  # type: ignore[assignment]
     bid_a: UUID = tenant_isolation_booking_scenario["booking_id"]  # type: ignore[assignment]
     oid_b = uuid4()
@@ -540,12 +566,16 @@ def test_charge_other_tenant_booking_404(
     try:
 
         async def _add_owner_b() -> None:
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 async with session.begin():
                     await disable_row_security_for_test_seed(session)
                     await session.execute(
-                        text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                        text(
+                            "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                        ),
                         {"tid": str(tid_b)},
                     )
                     session.add(
@@ -572,7 +602,9 @@ def test_charge_other_tenant_booking_404(
     assert r.status_code == 404
 
 
-def test_refund_requires_owner_not_manager(client, db_engine, auth_headers_user) -> None:
+def test_refund_requires_owner_not_manager(
+    client, db_engine, auth_headers_user
+) -> None:
     if not os.environ.get("DATABASE_URL") and not os.environ.get("TEST_DATABASE_URL"):
         pytest.skip("DATABASE_URL required")
     scenario = _seed_stripe_payment_scenario(db_engine)
@@ -588,12 +620,16 @@ def test_refund_requires_owner_not_manager(client, db_engine, auth_headers_user)
     try:
 
         async def _add_manager() -> None:
-            factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 async with session.begin():
                     await disable_row_security_for_test_seed(session)
                     await session.execute(
-                        text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                        text(
+                            "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                        ),
                         {"tid": str(tid)},
                     )
                     session.add(

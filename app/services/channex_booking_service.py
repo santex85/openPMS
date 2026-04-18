@@ -92,7 +92,9 @@ def _guest_payload_from_channex(
     c = payload.customer
     first = (c.name if c else None) or "Guest"
     last = (c.surname if c else None) or "Channex"
-    mail_raw = (c.mail if c else None) or f"channex-{fallback_key}@guests.openpms.invalid"
+    mail_raw = (
+        c.mail if c else None
+    ) or f"channex-{fallback_key}@guests.openpms.invalid"
     mail = mail_raw.strip().lower()[:320]
     phone_raw = (c.phone if c else None) or "+10000000000"
     phone = phone_raw.strip()[:64]
@@ -111,13 +113,17 @@ def _source_channel(payload: ChannexBookingRevisionPayload) -> str:
     return raw[:64]
 
 
-def _check_in_out(payload: ChannexBookingRevisionPayload) -> tuple[date | None, date | None]:
+def _check_in_out(
+    payload: ChannexBookingRevisionPayload,
+) -> tuple[date | None, date | None]:
     room0 = payload.rooms[0] if payload.rooms else None
     if room0 is not None and room0.checkin_date and room0.checkout_date:
         ci = _parse_iso_date(room0.checkin_date)
         co = _parse_iso_date(room0.checkout_date)
         return ci, co
-    return _parse_iso_date(payload.arrival_date), _parse_iso_date(payload.departure_date)
+    return _parse_iso_date(payload.arrival_date), _parse_iso_date(
+        payload.departure_date
+    )
 
 
 async def _resolve_room_and_rate_maps(
@@ -280,7 +286,9 @@ async def ingest_channex_booking(
     room0 = payload.rooms[0] if payload.rooms else None
     if room0 is None or not room0.room_type_id or not room0.rate_plan_id:
         rev_row.processing_status = "error"
-        rev_row.error_message = "Channex revision missing rooms[0] or room_type_id/rate_plan_id"
+        rev_row.error_message = (
+            "Channex revision missing rooms[0] or room_type_id/rate_plan_id"
+        )
         rev_row.processed_at = now
         await session.flush()
         return ChannexIngestResult(
@@ -377,9 +385,7 @@ async def ingest_channex_booking(
             )
             if booking is None:
                 rev_row.processing_status = "error"
-                rev_row.error_message = (
-                    f"No OpenPMS booking for external_booking_id={cx_booking_external!r}"
-                )
+                rev_row.error_message = f"No OpenPMS booking for external_booking_id={cx_booking_external!r}"
                 rev_row.processed_at = now
                 await session.flush()
                 return ChannexIngestResult(
@@ -427,9 +433,7 @@ async def ingest_channex_booking(
             )
             if booking is None:
                 rev_row.processing_status = "error"
-                rev_row.error_message = (
-                    f"No OpenPMS booking for external_booking_id={cx_booking_external!r}"
-                )
+                rev_row.error_message = f"No OpenPMS booking for external_booking_id={cx_booking_external!r}"
                 rev_row.processed_at = now
                 await session.flush()
                 return ChannexIngestResult(
@@ -446,7 +450,9 @@ async def ingest_channex_booking(
             old_rt = {ln.room_type_id for ln in old_lines}
             if len(old_rt) != 1:
                 rev_row.processing_status = "error"
-                rev_row.error_message = "Booking lines must share one room type for Channex modify"
+                rev_row.error_message = (
+                    "Booking lines must share one room type for Channex modify"
+                )
                 rev_row.processed_at = now
                 await session.flush()
                 return ChannexIngestResult(

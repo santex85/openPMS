@@ -21,8 +21,12 @@ class CountryPackExtension(Base):
             ["tenants.id"],
             name="fk_country_pack_extensions_tenant_id_tenants",
         ),
-        UniqueConstraint("tenant_id", "code", name="uq_country_pack_extensions_tenant_code"),
-        UniqueConstraint("tenant_id", "id", name="uq_country_pack_extensions_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id", "code", name="uq_country_pack_extensions_tenant_code"
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_country_pack_extensions_tenant_id_id"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -36,7 +40,9 @@ class CountryPackExtension(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     webhook_url: Mapped[str] = mapped_column(Text, nullable=False)
     required_fields: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
-    ui_config_schema: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ui_config_schema: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),

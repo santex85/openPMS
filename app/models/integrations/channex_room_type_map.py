@@ -47,7 +47,9 @@ class ChannexRoomTypeMap(Base):
         default=uuid4,
     )
     tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    property_link_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    property_link_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
     room_type_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     channex_room_type_id: Mapped[str] = mapped_column(String(36), nullable=False)
     channex_room_type_name: Mapped[str | None] = mapped_column(

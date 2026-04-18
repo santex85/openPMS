@@ -34,7 +34,13 @@ class TaxConfigCreate(BaseModel):
         description="Rate as fraction, e.g. 0.07 for 7%.",
     )
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"tax_mode": "inclusive", "tax_name": "VAT", "tax_rate": "0.07"}]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"tax_mode": "inclusive", "tax_name": "VAT", "tax_rate": "0.07"}
+            ]
+        }
+    )
 
 
 class TaxConfigRead(BaseModel):

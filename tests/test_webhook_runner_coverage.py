@@ -355,7 +355,9 @@ async def test_run_booking_patch_webhooks_booking_updated(db_engine: object) -> 
             folio_balance_on_checkout=None,
         )
 
-    updated = [c for c in mock_dispatch.await_args_list if c.args[2] == ev.BOOKING_UPDATED]
+    updated = [
+        c for c in mock_dispatch.await_args_list if c.args[2] == ev.BOOKING_UPDATED
+    ]
     assert len(updated) == 1
     payload = updated[0].args[3]
     assert payload["changed"]["total_amount"] == "200.00"

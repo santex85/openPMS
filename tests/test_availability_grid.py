@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.models.core.property import Property
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
-from app.services.availability_service import _room_counts_by_type, get_availability_grid
+from app.services.availability_service import (
+    _room_counts_by_type,
+    get_availability_grid,
+)
 
 from tests.db_seed import disable_row_security_for_test_seed
 
@@ -65,7 +68,9 @@ async def test_room_counts_by_type_non_empty_counts_physical_rooms() -> None:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -148,7 +153,9 @@ async def test_room_counts_by_type_non_empty_counts_physical_rooms() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 counts = await _room_counts_by_type(session, tid, [rt_id])
@@ -164,7 +171,6 @@ async def test_get_availability_grid_direct_covers_service() -> None:
     from app.models.auth.user import User
     from app.models.core.room import Room
     from app.models.core.tenant import Tenant
-    from app.models.rates.rate import Rate
     from app.models.rates.rate_plan import RatePlan
 
     url = _database_url()
@@ -176,7 +182,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -251,7 +259,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 grid = await get_availability_grid(
@@ -272,7 +282,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 none_prop = await get_availability_grid(
@@ -288,7 +300,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 empty_rt = await get_availability_grid(
@@ -304,7 +318,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 bare = Property(
@@ -322,7 +338,9 @@ async def test_get_availability_grid_direct_covers_service() -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 no_types = await get_availability_grid(
@@ -354,7 +372,9 @@ def test_availability_grid_happy_path_with_ledger(
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 for d in nights:
@@ -437,7 +457,9 @@ def test_availability_grid_no_room_types_empty_cells(
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 prop = Property(
@@ -484,7 +506,9 @@ def test_availability_grid_room_type_filter(
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 suite = RoomType(

@@ -87,7 +87,9 @@ def _require_stripe_oauth_settings(settings: Settings) -> None:
     if not (settings.stripe_client_id or "").strip():
         raise StripeConnectError("Stripe client_id is not configured", status_code=503)
     if not (settings.stripe_redirect_uri or "").strip():
-        raise StripeConnectError("Stripe redirect_uri is not configured", status_code=503)
+        raise StripeConnectError(
+            "Stripe redirect_uri is not configured", status_code=503
+        )
 
 
 def _require_stripe_secret(settings: Settings) -> None:
@@ -142,7 +144,9 @@ async def exchange_code_for_connection(
     stripe_user_id = getattr(token_resp, "stripe_user_id", None)
     livemode_raw = getattr(token_resp, "livemode", None)
     if not stripe_user_id:
-        raise StripeConnectError("Stripe did not return stripe_user_id", status_code=502)
+        raise StripeConnectError(
+            "Stripe did not return stripe_user_id", status_code=502
+        )
     livemode = bool(livemode_raw)
     ciphertext = encrypt_stripe_account_id(settings, str(stripe_user_id))
     now = datetime.now(UTC)
@@ -211,7 +215,9 @@ async def disconnect_stripe_connection(
         ),
     )
     if row is None:
-        raise StripeConnectError("Stripe is not connected for this property", status_code=404)
+        raise StripeConnectError(
+            "Stripe is not connected for this property", status_code=404
+        )
     plain = decrypt_stripe_account_id(settings, row.stripe_account_id)
     try:
         stripe.OAuth.deauthorize(

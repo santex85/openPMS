@@ -54,7 +54,9 @@ def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
     owner_id = uuid4()
     cx_property_id = str(uuid4())
     seed_engine = create_async_engine(url)
-    factory = async_sessionmaker(seed_engine, class_=AsyncSession, expire_on_commit=False)
+    factory = async_sessionmaker(
+        seed_engine, class_=AsyncSession, expire_on_commit=False
+    )
     settings = get_settings()
     enc_key = encrypt_channex_api_key(settings, "incremental-test-key")
 
@@ -63,7 +65,9 @@ def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 session.add(

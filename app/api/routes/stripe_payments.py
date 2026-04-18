@@ -15,7 +15,12 @@ from app.api.deps import (
     require_roles,
     require_scopes,
 )
-from app.core.api_scopes import BOOKINGS_READ, BOOKINGS_WRITE, PROPERTIES_READ, PROPERTIES_WRITE
+from app.core.api_scopes import (
+    BOOKINGS_READ,
+    BOOKINGS_WRITE,
+    PROPERTIES_READ,
+    PROPERTIES_WRITE,
+)
 from app.core.config import get_settings
 from app.schemas.stripe_payments import (
     ChargeRead,
@@ -137,7 +142,9 @@ async def get_stripe_payment_methods(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Property not found",
         )
-    rows = await list_payment_methods(session, tenant_id, property_id, booking_id=booking_id)
+    rows = await list_payment_methods(
+        session, tenant_id, property_id, booking_id=booking_id
+    )
     return [PaymentMethodRead.model_validate(r) for r in rows]
 
 

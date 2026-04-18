@@ -30,6 +30,7 @@ def test_expired_jwt_returns_401(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 401
-    assert "invalid" in r.json()["detail"].lower() or "expired" in r.json()[
-        "detail"
-    ].lower()
+    assert (
+        "invalid" in r.json()["detail"].lower()
+        or "expired" in r.json()["detail"].lower()
+    )

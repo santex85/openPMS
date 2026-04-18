@@ -164,7 +164,9 @@ async def test_tax_service_delete_when_missing_returns_false(db_engine) -> None:
                 ),
                 {"tid": str(tenant_id)},
             )
-            deleted = await tax_service.delete_tax_config(session, tenant_id, property_id)
+            deleted = await tax_service.delete_tax_config(
+                session, tenant_id, property_id
+            )
             assert deleted is False
             cfg = await tax_service.get_tax_config(session, tenant_id, property_id)
             assert cfg is None
@@ -357,11 +359,14 @@ def test_put_tax_config_twice_updates_row(client, auth_headers_user) -> None:
         ),
     )
     h = auth_headers_user(tenant_id, owner_id, role="owner")
-    assert client.put(
-        f"/properties/{property_id}/tax-config",
-        headers=h,
-        json={"tax_mode": "inclusive", "tax_name": "VAT", "tax_rate": "0.05"},
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/properties/{property_id}/tax-config",
+            headers=h,
+            json={"tax_mode": "inclusive", "tax_name": "VAT", "tax_rate": "0.05"},
+        ).status_code
+        == 200
+    )
     r2 = client.put(
         f"/properties/{property_id}/tax-config",
         headers=h,

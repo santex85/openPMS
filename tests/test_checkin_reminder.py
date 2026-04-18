@@ -114,9 +114,7 @@ async def _seed_booking_for_reminder(
 
 async def _delete_reminder_tenant(db_engine: object, tenant_id: UUID) -> None:
     """Delete test data in FK-safe order for the reminder seed helper."""
-    factory = async_sessionmaker(
-        db_engine, class_=AsyncSession, expire_on_commit=False
-    )
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
     tid = str(tenant_id)
     async with factory() as session:
         async with session.begin():

@@ -178,5 +178,7 @@ def test_two_concurrent_bookings_one_inventory_unit(
         futures = [pool.submit(_post, i) for i in range(2)]
         codes = [f.result() for f in as_completed(futures)]
 
-    assert codes.count(201) == 1, f"expected exactly one successful booking; got {codes}"
+    assert codes.count(201) == 1, (
+        f"expected exactly one successful booking; got {codes}"
+    )
     assert codes.count(409) == 1, f"expected one inventory conflict; got {codes}"

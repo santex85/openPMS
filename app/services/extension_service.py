@@ -9,7 +9,11 @@ from app.models.bookings.guest import Guest
 from app.models.core.property import Property
 from app.models.integrations.country_pack_extension import CountryPackExtension
 from app.models.integrations.property_extension import PropertyExtension
-from app.schemas.country_pack import ExtensionCreate, ExtensionRead, PropertyExtensionRead
+from app.schemas.country_pack import (
+    ExtensionCreate,
+    ExtensionRead,
+    PropertyExtensionRead,
+)
 
 
 class ExtensionServiceError(Exception):
@@ -32,7 +36,9 @@ async def register_extension(
         ),
     )
     if existing is not None:
-        raise ExtensionServiceError("extension code already registered", status_code=409)
+        raise ExtensionServiceError(
+            "extension code already registered", status_code=409
+        )
 
     row = CountryPackExtension(
         tenant_id=tenant_id,
@@ -168,14 +174,18 @@ async def validate_extension_required_fields_for_checkin(
 
     ext_ids = [ln.extension_id for ln in links]
     ext_rows = (
-        await session.execute(
-            select(CountryPackExtension).where(
-                CountryPackExtension.tenant_id == tenant_id,
-                CountryPackExtension.id.in_(ext_ids),
-                CountryPackExtension.is_active.is_(True),
-            ),
+        (
+            await session.execute(
+                select(CountryPackExtension).where(
+                    CountryPackExtension.tenant_id == tenant_id,
+                    CountryPackExtension.id.in_(ext_ids),
+                    CountryPackExtension.is_active.is_(True),
+                ),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     ext_by_id = {e.id: e for e in ext_rows}
 
     missing_messages: list[str] = []

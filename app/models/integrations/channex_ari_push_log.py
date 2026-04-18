@@ -33,7 +33,9 @@ class ChannexAriPushLog(Base):
         default=uuid4,
     )
     tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    property_link_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    property_link_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
     request_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_body: Mapped[str | None] = mapped_column(Text, nullable=True)

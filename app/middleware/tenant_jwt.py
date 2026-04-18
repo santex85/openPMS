@@ -146,7 +146,9 @@ async def _authenticate_api_key(request: Request, session: AsyncSession) -> bool
     return True
 
 
-async def _unauthorized_asgi(scope: Scope, receive: Receive, send: Send, message: str) -> None:
+async def _unauthorized_asgi(
+    scope: Scope, receive: Receive, send: Send, message: str
+) -> None:
     body = UnauthorizedResponse(detail=message).model_dump()
     resp = JSONResponse(status_code=401, content=body)
     await resp(scope, receive, send)

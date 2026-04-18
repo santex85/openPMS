@@ -67,7 +67,9 @@ async def list_extensions_route(
     )
 
 
-@router.post("/extensions", response_model=ExtensionRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/extensions", response_model=ExtensionRead, status_code=status.HTTP_201_CREATED
+)
 async def register_extension_route(
     _: PackOwnerRolesDep,
     session: SessionDep,

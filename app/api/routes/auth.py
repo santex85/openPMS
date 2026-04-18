@@ -120,7 +120,9 @@ async def post_login(
                 detail=exc.detail,
             ) from exc
     body_for_login = (
-        body if body.tenant_id is not None else body.model_copy(update={"tenant_id": tid})
+        body
+        if body.tenant_id is not None
+        else body.model_copy(update={"tenant_id": tid})
     )
     try:
         async with tenant_transaction_session(factory, tid) as session:

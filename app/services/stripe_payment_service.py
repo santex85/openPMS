@@ -68,7 +68,9 @@ async def _active_connection_and_account(
         ),
     )
     if row is None:
-        raise StripePaymentError("Stripe is not connected for this property", status_code=422)
+        raise StripePaymentError(
+            "Stripe is not connected for this property", status_code=422
+        )
     plain = decrypt_stripe_account_id(settings, row.stripe_account_id)
     return row, plain
 
@@ -83,7 +85,9 @@ async def save_payment_method(
     label: str | None = None,
 ) -> StripePaymentMethod:
     _require_stripe_secret(settings)
-    _, acct = await _active_connection_and_account(settings, session, tenant_id, property_id)
+    _, acct = await _active_connection_and_account(
+        settings, session, tenant_id, property_id
+    )
     if booking_id is not None:
         booking = await _require_booking(session, tenant_id, booking_id)
         if booking.property_id != property_id:
@@ -271,7 +275,9 @@ async def charge_booking(
 
     pi_id = str(getattr(pi, "id", "") or "")
     if not pi_id:
-        raise StripePaymentError("Stripe did not return a payment intent id", status_code=502)
+        raise StripePaymentError(
+            "Stripe did not return a payment intent id", status_code=502
+        )
 
     folio = FolioTransaction(
         tenant_id=tenant_id,
@@ -325,13 +331,17 @@ async def refund_stripe_charge(
     if ch is None:
         raise StripePaymentError("charge not found", status_code=404)
     if ch.booking_id != booking_id:
-        raise StripePaymentError("charge does not belong to this booking", status_code=404)
+        raise StripePaymentError(
+            "charge does not belong to this booking", status_code=404
+        )
     if ch.status == "failed":
         raise StripePaymentError("cannot refund a failed charge", status_code=422)
     if ch.status == "refunded":
         raise StripePaymentError("charge is already fully refunded", status_code=422)
     if ch.status == "partial_refund":
-        raise StripePaymentError("only one refund is allowed per charge", status_code=422)
+        raise StripePaymentError(
+            "only one refund is allowed per charge", status_code=422
+        )
 
     refund_amt = ch.amount if amount is None else amount.quantize(Decimal("0.01"))
     if amount is not None and refund_amt <= 0:

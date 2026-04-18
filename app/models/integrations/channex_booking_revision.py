@@ -42,7 +42,9 @@ class ChannexBookingRevision(Base):
         default=uuid4,
     )
     tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    property_link_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    property_link_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
     channex_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
     channex_booking_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str | None] = mapped_column(String(20), nullable=True)

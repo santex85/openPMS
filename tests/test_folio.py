@@ -15,9 +15,7 @@ def test_get_folio_lists_transactions_and_balance(
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
     r = client.get(
         f"/bookings/{booking_id}/folio",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
     )
     assert r.status_code == 200
     data = r.json()
@@ -49,9 +47,7 @@ def test_post_payment_reduces_balance(
     assert pr.status_code == 201
     gr = client.get(
         f"/bookings/{booking_id}/folio",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
     )
     assert gr.status_code == 200
     assert gr.json()["balance"] == "100.00"
@@ -80,9 +76,7 @@ def test_post_folio_reverse_creates_reversal_row(
     tx_id = mr.json()["id"]
     before = client.get(
         f"/bookings/{booking_id}/folio",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
     ).json()
     assert before["balance"] == "175.00"
     dr = client.post(
@@ -93,9 +87,7 @@ def test_post_folio_reverse_creates_reversal_row(
     assert "Reversal" in dr.json()["description"]
     after = client.get(
         f"/bookings/{booking_id}/folio",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
     ).json()
     assert after["balance"] == "150.00"
     assert len(after["transactions"]) == 3
@@ -111,9 +103,7 @@ def test_patch_checked_out_warns_when_folio_not_zero(
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
     r = client.patch(
         f"/bookings/{booking_id}",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
         json={"status": "checked_out"},
     )
     assert r.status_code == 200
@@ -144,9 +134,7 @@ def test_patch_checked_out_204_when_folio_settled(
     assert pay.status_code == 201
     r = client.patch(
         f"/bookings/{booking_id}",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
         json={"status": "checked_out"},
     )
     assert r.status_code == 204

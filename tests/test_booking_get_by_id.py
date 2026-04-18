@@ -13,9 +13,7 @@ def test_get_booking_by_id_returns_tape(
     booking_id: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]
     r = client.get(
         f"/bookings/{booking_id}",
-        headers=auth_headers(
-            tenant_id, user_id=user_id, role="receptionist"
-        ),
+        headers=auth_headers(tenant_id, user_id=user_id, role="receptionist"),
     )
     assert r.status_code == 200
     data = r.json()

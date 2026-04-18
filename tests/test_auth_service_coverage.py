@@ -52,7 +52,9 @@ def test_change_password_success(client, smoke_scenario: dict, auth_headers) -> 
     assert login.status_code == 200, login.text
 
 
-def test_change_password_wrong_current(client, smoke_scenario: dict, auth_headers) -> None:
+def test_change_password_wrong_current(
+    client, smoke_scenario: dict, auth_headers
+) -> None:
     tid = smoke_scenario["tenant_id"]
     oid = smoke_scenario["owner_id"]
     r = client.post(
@@ -85,7 +87,9 @@ def test_invite_user_success(client, smoke_scenario: dict, auth_headers) -> None
     assert "temporary_password" in body
 
 
-def test_invite_user_duplicate_email(client, smoke_scenario: dict, auth_headers) -> None:
+def test_invite_user_duplicate_email(
+    client, smoke_scenario: dict, auth_headers
+) -> None:
     tid = smoke_scenario["tenant_id"]
     oid = smoke_scenario["owner_id"]
     client.post(
@@ -259,5 +263,7 @@ async def test_purge_stale_refresh_tokens(db_engine: object) -> None:
             assert deleted >= 1
 
     async with factory() as session:
-        row = await session.scalar(select(RefreshToken).where(RefreshToken.id == stale_id))
+        row = await session.scalar(
+            select(RefreshToken).where(RefreshToken.id == stale_id)
+        )
         assert row is None

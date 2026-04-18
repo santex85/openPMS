@@ -372,4 +372,6 @@ async def test_replace_country_pack_tax_full_path(db_engine: object) -> None:
         ).all()
     assert not any("OLD" in (r.description or "") for r in tax_rows)
     assert len(tax_rows) >= 1
-    assert all((r.description or "").startswith(COUNTRY_PACK_TAX_PREFIX) for r in tax_rows)
+    assert all(
+        (r.description or "").startswith(COUNTRY_PACK_TAX_PREFIX) for r in tax_rows
+    )

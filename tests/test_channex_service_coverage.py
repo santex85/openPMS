@@ -101,7 +101,9 @@ async def test_connect_happy_path(
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 row = await connect(
@@ -124,7 +126,9 @@ async def test_connect_happy_path(
 
 
 @pytest.mark.asyncio
-async def test_get_status_connected_with_maps(db_engine: object, channex_encrypt_env: None) -> None:
+async def test_get_status_connected_with_maps(
+    db_engine: object, channex_encrypt_env: None
+) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
     ctx = await _seed_channex_property(
@@ -172,7 +176,9 @@ async def test_activate_creates_webhook_when_url_configured(
     clear_settings_cache()
 
     mock_client = AsyncMock()
-    mock_client.create_webhook = AsyncMock(return_value={"data": {"id": "wh-created-1"}})
+    mock_client.create_webhook = AsyncMock(
+        return_value={"data": {"id": "wh-created-1"}}
+    )
 
     try:
         with patch(
@@ -312,7 +318,9 @@ async def test_provision_channex_happy_path(
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 out = await provision_channex_from_openpms(session, tid, pid)
@@ -409,9 +417,11 @@ async def test_save_rate_mappings_empty_clears(
                 {"tid": str(tid)},
             )
             n = await session.scalar(
-                select(ChannexRatePlanMap.id).where(
+                select(ChannexRatePlanMap.id)
+                .where(
                     ChannexRatePlanMap.tenant_id == tid,
-                ).limit(1),
+                )
+                .limit(1),
             )
     assert n is None
 
@@ -531,7 +541,9 @@ async def test_get_channex_rooms_and_rates(
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 rooms = await get_channex_rooms(session, tid, pid)

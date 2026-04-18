@@ -85,7 +85,9 @@ async def test_dispatch_webhook_event_enqueues_pending_rows(db_engine: object) -
             {"tid": str(tenant_id)},
         )
         n = await session.scalar(
-            select(func.count()).select_from(WebhookPendingDelivery).where(
+            select(func.count())
+            .select_from(WebhookPendingDelivery)
+            .where(
                 WebhookPendingDelivery.tenant_id == tenant_id,
             ),
         )
@@ -158,7 +160,9 @@ async def test_process_one_pending_row_success_deletes_row(db_engine: object) ->
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.internal_webhook_worker', 'true', true)"),
+                    text(
+                        "SELECT set_config('app.internal_webhook_worker', 'true', true)"
+                    ),
                 )
                 row = await session.get(WebhookPendingDelivery, pending_id)
                 assert row is not None
@@ -245,7 +249,9 @@ async def test_process_one_pending_row_failure_retries(db_engine: object) -> Non
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.internal_webhook_worker', 'true', true)"),
+                    text(
+                        "SELECT set_config('app.internal_webhook_worker', 'true', true)"
+                    ),
                 )
                 row = await session.get(WebhookPendingDelivery, pending_id)
                 assert row is not None
@@ -322,7 +328,9 @@ async def test_process_one_pending_row_dead_letter(db_engine: object) -> None:
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.internal_webhook_worker', 'true', true)"),
+                    text(
+                        "SELECT set_config('app.internal_webhook_worker', 'true', true)"
+                    ),
                 )
                 row = await session.get(WebhookPendingDelivery, pending_id)
                 assert row is not None

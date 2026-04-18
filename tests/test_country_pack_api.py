@@ -438,4 +438,7 @@ def test_checkin_blocked_when_extension_requires_passport(
             json={"status": "checked_in"},
         )
         assert bad.status_code == 400
-        assert "passport" in bad.json()["detail"].lower() or "th_tm30" in bad.json()["detail"]
+        assert (
+            "passport" in bad.json()["detail"].lower()
+            or "th_tm30" in bad.json()["detail"]
+        )

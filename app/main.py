@@ -100,9 +100,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "refresh_cookie_secure_disabled",
             hint="only for local HTTP dev; use HTTPS + Secure cookies in production",
         )
-    if settings.jwt_algorithm.upper() == "HS256" and not (
-        settings.webhook_secret_fernet_key or ""
-    ).strip():
+    if (
+        settings.jwt_algorithm.upper() == "HS256"
+        and not (settings.webhook_secret_fernet_key or "").strip()
+    ):
         log.warning(
             "webhook_secret_fernet_key_missing",
             hint="Fernet key is derived from JWT_SECRET; set WEBHOOK_SECRET_FERNET_KEY to manage rotation explicitly",

@@ -141,7 +141,9 @@ async def test_full_ari_sync_all_properties_empty_lookup_enqueues_nothing() -> N
         "app.tasks.channex_ari_sync.create_async_engine_and_sessionmaker",
         return_value=(mock_engine, mock_factory),
     ):
-        with patch("app.tasks.channex_ari_sync.channex_full_ari_sync.delay") as mock_delay:
+        with patch(
+            "app.tasks.channex_ari_sync.channex_full_ari_sync.delay"
+        ) as mock_delay:
             n = await _run_channex_full_ari_sync_all_properties()
     assert n == 0
     mock_delay.assert_not_called()

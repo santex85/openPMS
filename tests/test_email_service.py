@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.models.notifications.email_log import EmailLog
 from app.services.channex_booking_service import ChannexIngestResult
-from app.services.email_service import dispatch_channex_booking_emails, send_booking_email
+from app.services.email_service import (
+    dispatch_channex_booking_emails,
+    send_booking_email,
+)
 from tests.db_seed import disable_row_security_for_test_seed
 
 
@@ -41,8 +44,12 @@ async def test_send_booking_email_skips_without_api_key(
     tid: UUID = tenant_isolation_booking_scenario["tenant_a"]  # type: ignore[assignment]
 
     async def _body(engine: object) -> None:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        with patch("app.services.email_service.send_email", new_callable=AsyncMock) as send_m:
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
+        with patch(
+            "app.services.email_service.send_email", new_callable=AsyncMock
+        ) as send_m:
             with patch("app.services.email_service.get_settings") as gs:
                 gs.return_value = MagicMock(resend_api_key="")
                 async with factory() as session:
@@ -73,11 +80,15 @@ async def test_send_booking_email_logs_sent_and_failed(
     tid: UUID = tenant_isolation_booking_scenario["tenant_a"]  # type: ignore[assignment]
 
     async def _body(engine: object) -> None:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
 
         with patch("app.services.email_service.get_settings") as gs:
             gs.return_value = MagicMock(resend_api_key="re_test_key")
-            with patch("app.services.email_service.send_email", new_callable=AsyncMock) as send_m:
+            with patch(
+                "app.services.email_service.send_email", new_callable=AsyncMock
+            ) as send_m:
                 send_m.return_value = "re_msg_1"
                 async with factory() as session:
                     async with session.begin():
@@ -117,7 +128,9 @@ async def test_send_booking_email_logs_sent_and_failed(
 
         with patch("app.services.email_service.get_settings") as gs:
             gs.return_value = MagicMock(resend_api_key="re_test_key")
-            with patch("app.services.email_service.send_email", new_callable=AsyncMock) as send_m:
+            with patch(
+                "app.services.email_service.send_email", new_callable=AsyncMock
+            ) as send_m:
                 send_m.side_effect = RuntimeError("resend down")
                 async with factory() as session:
                     async with session.begin():
@@ -200,7 +213,9 @@ def test_post_send_invoice_rejects_invalid_guest_email(
     gid: UUID = tenant_isolation_booking_scenario["guest_id"]  # type: ignore[assignment]
 
     async def _set_invalid(engine: object) -> None:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)

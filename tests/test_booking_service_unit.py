@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import selectinload
 
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine

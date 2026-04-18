@@ -16,7 +16,12 @@ from app.api.deps import (
     require_scopes,
 )
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
-from app.schemas.rooms import AssignableRoomsQueryParams, RoomCreate, RoomPatch, RoomRead
+from app.schemas.rooms import (
+    AssignableRoomsQueryParams,
+    RoomCreate,
+    RoomPatch,
+    RoomRead,
+)
 from app.services.room_assignable_service import list_assignable_rooms_for_stay
 from app.services.audit_service import record_audit
 from app.services.room_list_service import property_belongs_to_tenant

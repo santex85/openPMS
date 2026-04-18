@@ -148,9 +148,7 @@ async def delete_room_type(
 ) -> None:
     _ = request
     try:
-        await room_type_service.soft_delete_room_type(
-            session, tenant_id, room_type_id
-        )
+        await room_type_service.soft_delete_room_type(session, tenant_id, room_type_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

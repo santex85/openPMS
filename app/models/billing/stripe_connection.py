@@ -42,7 +42,9 @@ class StripeConnection(Base):
     property_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     stripe_account_id: Mapped[str] = mapped_column(Text, nullable=False)
     livemode: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     disconnected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

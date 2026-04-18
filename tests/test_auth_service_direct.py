@@ -359,7 +359,6 @@ async def test_change_password_direct(db_engine: object) -> None:
 
 @pytest.mark.asyncio
 async def test_patch_user_direct(db_engine: object) -> None:
-    settings = get_settings()
     tenant_id = uuid4()
     owner_id = uuid4()
     mgr_id = uuid4()

@@ -36,8 +36,7 @@ async def list_country_packs(
     stmt = (
         select(CountryPack)
         .where(
-            (CountryPack.is_builtin.is_(True))
-            | (CountryPack.tenant_id == tenant_id),
+            (CountryPack.is_builtin.is_(True)) | (CountryPack.tenant_id == tenant_id),
         )
         .order_by(CountryPack.is_builtin.desc(), CountryPack.code)
     )
@@ -70,7 +69,9 @@ async def create_country_pack(
     code = data.code.strip()
     existing = await session.scalar(select(CountryPack).where(CountryPack.code == code))
     if existing is not None:
-        raise CountryPackServiceError("country pack code already exists", status_code=409)
+        raise CountryPackServiceError(
+            "country pack code already exists", status_code=409
+        )
 
     taxes_dump = [r.model_dump(mode="json") for r in data.taxes]
     row = CountryPack(
@@ -88,7 +89,9 @@ async def create_country_pack(
         default_checkout_time=data.default_checkout_time,
         taxes=taxes_dump,
         payment_methods=data.payment_methods,
-        fiscal_year_start=data.fiscal_year_start.strip() if data.fiscal_year_start else None,
+        fiscal_year_start=data.fiscal_year_start.strip()
+        if data.fiscal_year_start
+        else None,
         is_builtin=False,
     )
     session.add(row)
@@ -112,7 +115,9 @@ async def update_country_pack(
     if row is None:
         raise CountryPackServiceError("country pack not found", status_code=404)
     if row.is_builtin:
-        raise CountryPackServiceError("cannot modify builtin country pack", status_code=403)
+        raise CountryPackServiceError(
+            "cannot modify builtin country pack", status_code=403
+        )
     if row.tenant_id != tenant_id:
         raise CountryPackServiceError("country pack not found", status_code=404)
 
@@ -167,7 +172,9 @@ async def delete_country_pack(
     if row is None:
         raise CountryPackServiceError("country pack not found", status_code=404)
     if row.is_builtin:
-        raise CountryPackServiceError("cannot delete builtin country pack", status_code=403)
+        raise CountryPackServiceError(
+            "cannot delete builtin country pack", status_code=403
+        )
     if row.tenant_id != tenant_id:
         raise CountryPackServiceError("country pack not found", status_code=404)
 

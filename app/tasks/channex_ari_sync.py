@@ -133,7 +133,9 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                     Rate.date <= end,
                 )
                 for row in (await session.execute(stmt_r)).scalars().all():
-                    rate_rows_by_key[(row.room_type_id, row.rate_plan_id, row.date)] = row
+                    rate_rows_by_key[(row.room_type_id, row.rate_plan_id, row.date)] = (
+                        row
+                    )
 
             prop_cx = link_row.channex_property_id.strip()
             av_values: list[dict[str, object]] = []

@@ -8,7 +8,6 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings

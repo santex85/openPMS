@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+
 def test_audit_log_pagination(
     client,
     smoke_scenario: dict[str, UUID],

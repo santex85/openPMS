@@ -154,7 +154,12 @@ async def test_claim_revision_retry_error_status_reopens(
         "status": "confirmed",
         "amount": "100.00",
         "rooms": [base_room],
-        "customer": {"name": "A", "surname": "B", "mail": "a@example.com", "phone": "+1"},
+        "customer": {
+            "name": "A",
+            "surname": "B",
+            "mail": "a@example.com",
+            "phone": "+1",
+        },
     }
     payload = ChannexBookingRevisionPayload.model_validate(flat)
 
@@ -238,7 +243,12 @@ async def test_ingest_cancelled_without_local_booking_marks_error(
                 "checkout_date": "2026-09-02",
             },
         ],
-        "customer": {"name": "X", "surname": "Y", "mail": "x@example.com", "phone": "+1"},
+        "customer": {
+            "name": "X",
+            "surname": "Y",
+            "mail": "x@example.com",
+            "phone": "+1",
+        },
     }
     async with factory() as session:
         async with session.begin():
@@ -545,7 +555,12 @@ async def test_ingest_invalid_channex_dates_marks_revision_error(
                 "checkout_date": "2026-08-10",
             },
         ],
-        "customer": {"name": "A", "surname": "B", "mail": "a@example.com", "phone": "+1"},
+        "customer": {
+            "name": "A",
+            "surname": "B",
+            "mail": "a@example.com",
+            "phone": "+1",
+        },
     }
     async with factory() as session:
         async with session.begin():

@@ -513,8 +513,7 @@ async def _pick_first_free_room_for_stay(
         select(Room)
         .join(
             RoomType,
-            (RoomType.tenant_id == Room.tenant_id)
-            & (RoomType.id == Room.room_type_id),
+            (RoomType.tenant_id == Room.tenant_id) & (RoomType.id == Room.room_type_id),
         )
         .where(
             Room.tenant_id == tenant_id,
@@ -848,9 +847,13 @@ async def patch_booking(
             validate_status_transition(booking.status, new_s)
         except BookingStatusTransitionError as exc:
             raise PatchBookingError(exc.message, status_code=409) from exc
-        if new_s == "checked_in" and normalize_booking_status(
-            prev_booking_status,
-        ) != "checked_in":
+        if (
+            new_s == "checked_in"
+            and normalize_booking_status(
+                prev_booking_status,
+            )
+            != "checked_in"
+        ):
             guest_row = await session.scalar(
                 select(Guest).where(
                     Guest.tenant_id == tenant_id,

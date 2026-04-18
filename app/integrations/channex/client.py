@@ -73,9 +73,7 @@ class ChannexClient:
     def __init__(self, api_key: str, env: str = "production") -> None:
         env_lower = (env or "production").strip().lower()
         self._base = (
-            CHANNEX_SANDBOX_BASE
-            if env_lower == "sandbox"
-            else CHANNEX_PROD_BASE
+            CHANNEX_SANDBOX_BASE if env_lower == "sandbox" else CHANNEX_PROD_BASE
         )
         self._headers = {
             "user-api-key": api_key,
@@ -171,9 +169,7 @@ class ChannexClient:
             if inner is None:
                 return []
             if isinstance(inner, list):
-                return [
-                    cast(dict[str, Any], x) for x in inner if isinstance(x, dict)
-                ]
+                return [cast(dict[str, Any], x) for x in inner if isinstance(x, dict)]
             if isinstance(inner, dict):
                 return [cast(dict[str, Any], inner)]
         if isinstance(data, dict):
@@ -417,7 +413,9 @@ class ChannexClient:
             flat = {}
         return flat
 
-    async def get_booking_revision(self, revision_id: str) -> ChannexBookingRevisionPayload:
+    async def get_booking_revision(
+        self, revision_id: str
+    ) -> ChannexBookingRevisionPayload:
         flat = await self.get_booking_revision_raw(revision_id)
         return ChannexBookingRevisionPayload.model_validate(flat)
 

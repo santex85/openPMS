@@ -336,7 +336,9 @@ def test_activate_sets_webhook_id(
 ) -> None:
     from starlette.testclient import TestClient
 
-    monkeypatch.setenv("CHANNEX_WEBHOOK_URL", "https://openpms.example/webhooks/channex")
+    monkeypatch.setenv(
+        "CHANNEX_WEBHOOK_URL", "https://openpms.example/webhooks/channex"
+    )
     clear_settings_cache()
 
     assert isinstance(client, TestClient)
@@ -358,7 +360,9 @@ def test_activate_sets_webhook_id(
         inst.create_webhook = AsyncMock(
             return_value={"data": {"id": webhook_uuid, "type": "webhook"}},
         )
-        MockCx.extract_created_resource_id = ChannexClientImpl.extract_created_resource_id
+        MockCx.extract_created_resource_id = (
+            ChannexClientImpl.extract_created_resource_id
+        )
 
         res = client.post(
             "/channex/activate",
@@ -376,7 +380,9 @@ def test_activate_sets_webhook_id(
     async def _read() -> None:
         eng = create_async_engine(url)
         try:
-            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory2 = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory2() as session:
                 link = await session.get(ChannexPropertyLink, link_id)
                 assert link is not None
@@ -431,7 +437,9 @@ def test_disconnect_calls_delete_webhook(
     async def _gone() -> None:
         eng = create_async_engine(url)
         try:
-            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory2 = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory2() as session:
                 res = await session.execute(
                     select(ChannexPropertyLink).where(
@@ -481,7 +489,9 @@ def test_inbound_webhook_persists_log_without_auth(
     async def _check() -> None:
         eng = create_async_engine(url)
         try:
-            factory2 = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            factory2 = async_sessionmaker(
+                eng, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory2() as session:
                 q = await session.execute(
                     select(ChannexWebhookLog)

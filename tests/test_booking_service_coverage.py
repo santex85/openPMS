@@ -207,7 +207,9 @@ def booking_create_ctx_existing_guest() -> dict[str, UUID]:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
     email = "merge@cov.example.com"
-    ctx = asyncio.run(_seed_create_booking_world(guest_email=email, existing_guest=True))
+    ctx = asyncio.run(
+        _seed_create_booking_world(guest_email=email, existing_guest=True)
+    )
     ctx["guest_email"] = email  # type: ignore[assignment]
     return ctx
 
@@ -444,9 +446,11 @@ async def test_patch_booking_checkout_balance_warning(
                 tenant_id=tid,
                 room_type_id=(
                     await session.scalar(
-                        select(BookingLine.room_type_id).where(
+                        select(BookingLine.room_type_id)
+                        .where(
                             BookingLine.booking_id == bid,
-                        ).limit(1),
+                        )
+                        .limit(1),
                     )
                 ),
                 name="HK-1",
@@ -550,9 +554,11 @@ async def test_assign_booking_room_unassign(
                 {"tid": str(tid)},
             )
             line_rt = await session.scalar(
-                select(BookingLine.room_type_id).where(
+                select(BookingLine.room_type_id)
+                .where(
                     BookingLine.booking_id == bid,
-                ).limit(1),
+                )
+                .limit(1),
             )
             assert line_rt is not None
             phys = Room(

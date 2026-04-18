@@ -15,9 +15,7 @@ async def create_property(
     tenant_id: UUID,
     data: PropertyCreate,
 ) -> Property:
-    pack_code = (
-        data.country_pack_code.strip() if data.country_pack_code else None
-    )
+    pack_code = data.country_pack_code.strip() if data.country_pack_code else None
     prop = Property(
         tenant_id=tenant_id,
         name=data.name.strip(),

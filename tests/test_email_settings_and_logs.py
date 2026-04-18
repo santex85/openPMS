@@ -78,7 +78,9 @@ def test_booking_email_logs_empty_and_sorted(
         assert url
         engine = create_async_engine(url)
         try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 async with session.begin():
                     await session.execute(

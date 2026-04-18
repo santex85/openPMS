@@ -30,7 +30,9 @@ class ChannexPropertyLink(Base):
             ["properties.tenant_id", "properties.id"],
             name="fk_channex_property_links_property_composite",
         ),
-        UniqueConstraint("tenant_id", "id", name="uq_channex_property_links_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_channex_property_links_tenant_id_id"
+        ),
         UniqueConstraint("property_id", name="uq_channex_property_links_property_id"),
     )
 

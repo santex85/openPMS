@@ -189,7 +189,9 @@ def _stay_summary(
     return ci.isoformat(), co.isoformat(), len(nights)
 
 
-async def _room_type_name(session: AsyncSession, tenant_id: UUID, lines: list[Any]) -> str:
+async def _room_type_name(
+    session: AsyncSession, tenant_id: UUID, lines: list[Any]
+) -> str:
     if not lines:
         return ""
     rt_id = lines[0].room_type_id
@@ -202,7 +204,9 @@ async def _room_type_name(session: AsyncSession, tenant_id: UUID, lines: list[An
     return (row or "").strip() or "Room"
 
 
-async def _room_label(session: AsyncSession, tenant_id: UUID, lines: list[Any]) -> str | None:
+async def _room_label(
+    session: AsyncSession, tenant_id: UUID, lines: list[Any]
+) -> str | None:
     for ln in lines:
         if ln.room_id is not None:
             r = await session.scalar(

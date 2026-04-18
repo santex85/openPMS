@@ -19,7 +19,9 @@ from tests.test_channex_webhook_sync import _database_url
 
 
 @pytest.mark.asyncio
-async def test_cleanup_old_delivery_logs_deletes_only_stale_rows(db_engine: object) -> None:
+async def test_cleanup_old_delivery_logs_deletes_only_stale_rows(
+    db_engine: object,
+) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
 
@@ -96,7 +98,9 @@ async def test_cleanup_old_delivery_logs_deletes_only_stale_rows(db_engine: obje
 
 
 @pytest.mark.asyncio
-async def test_cleanup_returns_zero_when_no_tenants(db_engine: object, monkeypatch) -> None:
+async def test_cleanup_returns_zero_when_no_tenants(
+    db_engine: object, monkeypatch
+) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
 

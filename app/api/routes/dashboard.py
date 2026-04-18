@@ -86,9 +86,7 @@ async def get_dashboard_unpaid_folio_summary(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="property not found",
         )
-    raw = await list_unpaid_folio_summary_for_property(
-        session, tenant_id, property_id
-    )
+    raw = await list_unpaid_folio_summary_for_property(session, tenant_id, property_id)
     out: list[BookingUnpaidFolioSummaryRead] = []
     for bid, bal, fn, ln in raw:
         name = f"{fn} {ln}".strip()

@@ -22,7 +22,10 @@ from app.schemas.tax_config import TaxConfigCreate, TaxConfigRead
 from app.services import property_service, tax_service
 from app.services.auth_service import get_user
 from app.services.email_service import send_property_test_email
-from app.services.email_settings_service import get_email_settings, upsert_email_settings
+from app.services.email_settings_service import (
+    get_email_settings,
+    upsert_email_settings,
+)
 from app.services.audit_service import record_audit
 from app.core.config import get_settings
 from app.core.rate_limit import limiter

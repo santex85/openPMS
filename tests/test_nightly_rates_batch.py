@@ -31,7 +31,6 @@ def _database_url() -> str | None:
 def auth_headers():
     import jwt
     from datetime import UTC, datetime, timedelta
-    from uuid import uuid4
 
     secret = os.environ["JWT_SECRET"]
 
@@ -67,12 +66,16 @@ def test_get_rates_batch_matches_single_room_get(
     async def _seed() -> dict[str, object]:
         tenant_id = uuid4()
         owner_id = uuid4()
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 session.add(

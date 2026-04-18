@@ -27,7 +27,9 @@ def _insert_zero_charge_tx(tenant_id: UUID, booking_id: UUID) -> UUID:
     engine = create_async_engine(url)
 
     async def _main() -> UUID:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)

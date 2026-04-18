@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import clear_settings_cache, get_settings
 from app.core.security import hash_password
@@ -56,7 +56,9 @@ def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
     owner_id = uuid4()
     cx_property_id = str(uuid4())
     seed_engine = create_async_engine(url)
-    factory = async_sessionmaker(seed_engine, class_=AsyncSession, expire_on_commit=False)
+    factory = async_sessionmaker(
+        seed_engine, class_=AsyncSession, expire_on_commit=False
+    )
     settings = get_settings()
     enc_key = encrypt_channex_api_key(settings, "incremental-test-key")
 
@@ -65,7 +67,9 @@ def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 session.add(
@@ -177,7 +181,9 @@ def incremental_ctx(channex_encrypt_env: None) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-async def test_incremental_availability_push(incremental_ctx: dict[str, object]) -> None:
+async def test_incremental_availability_push(
+    incremental_ctx: dict[str, object],
+) -> None:
     tid: object = incremental_ctx["tenant_id"]
     pid: object = incremental_ctx["property_id"]
     rtid: object = incremental_ctx["room_type_id"]
@@ -267,7 +273,9 @@ def test_put_rates_bulk_enqueues_channex_rates_delay(
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 session.add(

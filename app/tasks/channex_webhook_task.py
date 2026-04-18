@@ -13,7 +13,10 @@ from app.db.session import create_async_engine_and_sessionmaker
 from app.integrations.channex.client import ChannexApiError
 from app.models.integrations.channex_property_link import ChannexPropertyLink
 from app.models.integrations.channex_webhook_log import ChannexWebhookLog
-from app.services.channex_booking_service import ChannexIngestResult, ingest_channex_booking
+from app.services.channex_booking_service import (
+    ChannexIngestResult,
+    ingest_channex_booking,
+)
 from app.services.email_service import dispatch_channex_booking_emails
 from app.services.channex_service import _client_for_link
 from app.worker import celery_app
@@ -196,4 +199,3 @@ async def _run_channex_process_webhook(webhook_log_id: UUID) -> None:
 @celery_app.task(name="channex_process_webhook")
 def channex_process_webhook(webhook_log_id: str) -> None:
     asyncio.run(_run_channex_process_webhook(UUID(webhook_log_id)))
-

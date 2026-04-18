@@ -22,14 +22,11 @@ from app.core.jwt_keys import (
 
 def _rs256_settings() -> Settings:
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem_priv = (
-        priv.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-        .decode("utf-8")
-    )
+    pem_priv = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
     return Settings.model_construct(
         database_url="postgresql://localhost:5432/openpms_test",
         jwt_algorithm="RS256",

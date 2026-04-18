@@ -377,7 +377,9 @@ def tenant_isolation_booking_scenario(db_engine):
     return asyncio.run(_seed())
 
 
-async def _seed_folio_scenario(*, booking_status: str = "checked_in") -> dict[str, object]:
+async def _seed_folio_scenario(
+    *, booking_status: str = "checked_in"
+) -> dict[str, object]:
     tenant_id = uuid4()
     user_id = uuid4()
     url = _database_url()

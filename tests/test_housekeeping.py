@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 
 def test_housekeeping_status_transitions_dirty_to_inspected(
     client,

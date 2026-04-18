@@ -179,9 +179,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_webhook_fernet_for_rs256(self) -> Self:
-        if self.jwt_algorithm.upper() == "RS256" and not (
-            self.webhook_secret_fernet_key or ""
-        ).strip():
+        if (
+            self.jwt_algorithm.upper() == "RS256"
+            and not (self.webhook_secret_fernet_key or "").strip()
+        ):
             msg = (
                 "webhook_secret_fernet_key is required when jwt_algorithm is RS256 "
                 "(Fernet key cannot be derived from jwt_secret in RS256 mode)"

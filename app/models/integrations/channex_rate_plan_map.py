@@ -45,7 +45,9 @@ class ChannexRatePlanMap(Base):
         default=uuid4,
     )
     tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    room_type_map_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    room_type_map_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
     rate_plan_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     channex_rate_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     channex_rate_plan_name: Mapped[str | None] = mapped_column(

@@ -117,9 +117,7 @@ async def get_guest_with_booking_summaries(
     if not bookings:
         return guest, []
 
-    summaries = [
-        _summarize_booking(b, [ln.date for ln in b.lines]) for b in bookings
-    ]
+    summaries = [_summarize_booking(b, [ln.date for ln in b.lines]) for b in bookings]
     return guest, summaries
 
 

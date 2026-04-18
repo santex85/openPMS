@@ -16,7 +16,10 @@ from app.core import webhook_events as ev
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
 from app.models.bookings.guest import Guest
-from app.core.webhook_url_validation import WebhookUrlUnsafeError, assert_webhook_target_ips_safe_for_url
+from app.core.webhook_url_validation import (
+    WebhookUrlUnsafeError,
+    assert_webhook_target_ips_safe_for_url,
+)
 from app.models.core.property import Property
 from app.models.integrations.country_pack_extension import CountryPackExtension
 from app.models.integrations.property_extension import PropertyExtension

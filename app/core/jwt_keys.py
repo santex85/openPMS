@@ -25,13 +25,10 @@ def _public_pem_from_private(private_pem: str) -> str:
         backend=default_backend(),
     )
     pub = priv.public_key()
-    return (
-        pub.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("utf-8")
-    )
+    return pub.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("utf-8")
 
 
 def jwt_signing_material(settings: Settings) -> tuple[str, str]:
@@ -39,11 +36,15 @@ def jwt_signing_material(settings: Settings) -> tuple[str, str]:
     alg = settings.jwt_algorithm.upper()
     if alg == "RS256":
         if not settings.jwt_private_key_pem or not settings.jwt_private_key_pem.strip():
-            raise RuntimeError("jwt_private_key_pem is required when jwt_algorithm is RS256")
+            raise RuntimeError(
+                "jwt_private_key_pem is required when jwt_algorithm is RS256"
+            )
         return _normalize_pem(settings.jwt_private_key_pem), "RS256"
     if alg == "HS256":
         if len(settings.jwt_secret) < 32:
-            raise RuntimeError("jwt_secret must be at least 32 characters when using HS256")
+            raise RuntimeError(
+                "jwt_secret must be at least 32 characters when using HS256"
+            )
         return settings.jwt_secret, "HS256"
     raise RuntimeError(f"Unsupported jwt_algorithm: {settings.jwt_algorithm}")
 
@@ -62,7 +63,9 @@ def jwt_verifying_material(settings: Settings) -> tuple[str, str]:
         )
     if alg == "HS256":
         if len(settings.jwt_secret) < 32:
-            raise RuntimeError("jwt_secret must be at least 32 characters when using HS256")
+            raise RuntimeError(
+                "jwt_secret must be at least 32 characters when using HS256"
+            )
         return settings.jwt_secret, "HS256"
     raise RuntimeError(f"Unsupported jwt_algorithm: {settings.jwt_algorithm}")
 

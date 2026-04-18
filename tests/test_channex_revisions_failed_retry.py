@@ -73,7 +73,7 @@ async def test_get_failed_revisions_lists_error_row(
     cx_rt = str(channex_active_ctx["channex_room_type_id"])
     cx_rp = str(channex_active_ctx["channex_rate_plan_id"])
 
-    ci = (datetime.now(UTC).date() + timedelta(days=50))
+    ci = datetime.now(UTC).date() + timedelta(days=50)
     co = ci + timedelta(days=2)
     openpms_rev_id = uuid4()
     cx_rev_id = str(uuid4())
@@ -147,7 +147,7 @@ def test_post_retry_accepts_and_enqueues(
     link_id: UUID = channex_active_ctx["link_id"]  # type: ignore[assignment]
     oid: UUID = channex_active_ctx["owner_id"]  # type: ignore[assignment]
 
-    ci = (datetime.now(UTC).date() + timedelta(days=55))
+    ci = datetime.now(UTC).date() + timedelta(days=55)
     co = ci + timedelta(days=2)
     openpms_rev_id = uuid4()
     cx_rev_id = str(uuid4())
@@ -164,11 +164,15 @@ def test_post_retry_accepts_and_enqueues(
     )
 
     async def _seed() -> None:
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -242,7 +246,7 @@ async def test_post_retry_400_when_not_error(
     link_id: UUID = channex_active_ctx["link_id"]  # type: ignore[assignment]
     oid: UUID = channex_active_ctx["owner_id"]  # type: ignore[assignment]
 
-    ci = (datetime.now(UTC).date() + timedelta(days=60))
+    ci = datetime.now(UTC).date() + timedelta(days=60)
     co = ci + timedelta(days=2)
     openpms_rev_id = uuid4()
     cx_rev_id = str(uuid4())
@@ -300,7 +304,7 @@ async def test_retry_task_acks_after_successful_ingest(
     link_id: UUID = channex_active_ctx["link_id"]  # type: ignore[assignment]
     prop_id: UUID = channex_active_ctx["property_id"]  # type: ignore[assignment]
 
-    ci = (datetime.now(UTC).date() + timedelta(days=65))
+    ci = datetime.now(UTC).date() + timedelta(days=65)
     co = ci + timedelta(days=2)
     openpms_rev_id = uuid4()
     cx_rev_id = str(uuid4())
@@ -376,7 +380,7 @@ async def test_retry_task_skips_ack_when_ingest_fails(
     link_id: UUID = channex_active_ctx["link_id"]  # type: ignore[assignment]
     prop_id: UUID = channex_active_ctx["property_id"]  # type: ignore[assignment]
 
-    ci = (datetime.now(UTC).date() + timedelta(days=70))
+    ci = datetime.now(UTC).date() + timedelta(days=70)
     co = ci + timedelta(days=2)
     openpms_rev_id = uuid4()
     cx_rev_id = str(uuid4())

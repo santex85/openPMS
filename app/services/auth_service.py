@@ -227,9 +227,7 @@ async def list_users(
     tenant_id: UUID,
 ) -> list[User]:
     result = await session.execute(
-        select(User)
-        .where(User.tenant_id == tenant_id)
-        .order_by(User.email.asc()),
+        select(User).where(User.tenant_id == tenant_id).order_by(User.email.asc()),
     )
     return list(result.scalars().all())
 
@@ -326,8 +324,7 @@ async def patch_user(
         new_role_norm = body.role.strip().lower()
         if new_role_norm not in _USER_ROLES:
             raise AuthServiceError(
-                "role must be one of: "
-                + ", ".join(sorted(_USER_ROLES)),
+                "role must be one of: " + ", ".join(sorted(_USER_ROLES)),
                 status_code=422,
             )
         if actor_r == "manager" and new_role_norm == "owner":
@@ -337,9 +334,7 @@ async def patch_user(
             )
 
     next_role = (
-        new_role_norm
-        if new_role_norm is not None
-        else target.role.strip().lower()
+        new_role_norm if new_role_norm is not None else target.role.strip().lower()
     )
     next_active = target.is_active
     if "is_active" in data:

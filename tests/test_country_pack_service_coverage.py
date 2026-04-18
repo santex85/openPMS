@@ -35,7 +35,7 @@ def _sample_tax() -> TaxRuleSchema:
         inclusive=False,
         applies_to=["room_charge"],
         compound_after=None,
- )
+    )
 
 
 def _create_payload(code: str) -> CountryPackCreate:

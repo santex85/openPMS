@@ -7,7 +7,10 @@ from cryptography.fernet import Fernet
 import pytest
 
 from app.core.config import Settings
-from app.integrations.channex.crypto import decrypt_channex_api_key, encrypt_channex_api_key
+from app.integrations.channex.crypto import (
+    decrypt_channex_api_key,
+    encrypt_channex_api_key,
+)
 
 
 @pytest.fixture

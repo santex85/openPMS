@@ -118,7 +118,9 @@ def test_oauth_state_expired() -> None:
     try:
         settings = get_settings()
         fixed_ts = 1_700_000_000
-        with patch("app.services.stripe_connect_service.time.time", return_value=fixed_ts):
+        with patch(
+            "app.services.stripe_connect_service.time.time", return_value=fixed_ts
+        ):
             state = encode_oauth_state(settings, uuid4(), uuid4())
         with patch(
             "app.services.stripe_connect_service.time.time",
@@ -255,7 +257,9 @@ async def test_exchange_code_persists_encrypted_account(db_engine) -> None:
         )
         settings = get_settings()
         state = encode_oauth_state(settings, tenant_id, property_id)
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         tok = SimpleNamespace(stripe_user_id="acct_test_openpms_1", livemode=False)
         with patch(
             "app.services.stripe_connect_service.stripe.OAuth.token",
@@ -375,7 +379,6 @@ def test_tenant_b_cannot_see_stripe_status(
     auth_headers,
     tenant_isolation_booking_scenario: dict,
 ) -> None:
-    tid_a: UUID = tenant_isolation_booking_scenario["tenant_a"]  # type: ignore[assignment]
     tid_b: UUID = tenant_isolation_booking_scenario["tenant_b"]  # type: ignore[assignment]
     prop_a: UUID = tenant_isolation_booking_scenario["property_id"]  # type: ignore[assignment]
     r = client.get(
@@ -436,7 +439,9 @@ async def test_exchange_code_stripe_token_error(db_engine) -> None:
         )
         settings = get_settings()
         state = encode_oauth_state(settings, tenant_id, property_id)
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         with patch(
             "app.services.stripe_connect_service.stripe.OAuth.token",
             side_effect=stripe.StripeError("bad code"),
