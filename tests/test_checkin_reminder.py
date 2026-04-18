@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, time
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, text
@@ -112,6 +112,30 @@ async def _seed_booking_for_reminder(
     }
 
 
+async def _delete_reminder_tenant(db_engine: object, tenant_id: UUID) -> None:
+    """Delete test data in FK-safe order for the reminder seed helper."""
+    factory = async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    tid = str(tenant_id)
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            for tbl, col in (
+                ("email_logs", "tenant_id"),
+                ("booking_lines", "tenant_id"),
+                ("bookings", "tenant_id"),
+                ("guests", "tenant_id"),
+                ("room_types", "tenant_id"),
+                ("properties", "tenant_id"),
+                ("tenants", "id"),
+            ):
+                await session.execute(
+                    text(f"DELETE FROM {tbl} WHERE {col} = :tid"),  # noqa: S608
+                    {"tid": tid},
+                )
+
+
 def _patches_send():
     return patch(
         "app.services.email_service.send_email",
@@ -134,35 +158,42 @@ async def test_reminder_sent_for_tomorrow_booking(db_engine: object) -> None:
         guest_email="real@example.com",
         booking_status="confirmed",
     )
-    tid = ids["tenant_id"]  # type: ignore[assignment]
-    bid = ids["booking_id"]  # type: ignore[assignment]
+    try:
+        tid = ids["tenant_id"]  # type: ignore[assignment]
+        bid = ids["booking_id"]  # type: ignore[assignment]
 
-    send_m, gs = _patches_send()
-    with send_m as send_email_mock, gs:
-        with patch(
-            "app.tasks.email_tasks.checkin_reminder_target_date",
-            return_value=target_ci,
-        ):
-            await _send_checkin_reminders_async()
+        send_m, gs = _patches_send()
+        with send_m as send_email_mock, gs:
+            with patch(
+                "app.tasks.email_tasks.checkin_reminder_target_date",
+                return_value=target_ci,
+            ):
+                await _send_checkin_reminders_async()
 
-    send_email_mock.assert_awaited()
-    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as session:
-        async with session.begin():
-            await session.execute(
-                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
-                {"tid": str(tid)},
-            )
-            cnt = await session.scalar(
-                select(func.count())
-                .select_from(EmailLog)
-                .where(
-                    EmailLog.booking_id == bid,
-                    EmailLog.template_name == "checkin_reminder",
-                    EmailLog.status == "sent",
-                ),
-            )
-    assert (cnt or 0) == 1
+        send_email_mock.assert_awaited()
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        async with factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)",
+                    ),
+                    {"tid": str(tid)},
+                )
+                cnt = await session.scalar(
+                    select(func.count())
+                    .select_from(EmailLog)
+                    .where(
+                        EmailLog.booking_id == bid,
+                        EmailLog.template_name == "checkin_reminder",
+                        EmailLog.status == "sent",
+                    ),
+                )
+        assert (cnt or 0) == 1
+    finally:
+        await _delete_reminder_tenant(db_engine, ids["tenant_id"])
 
 
 @pytest.mark.asyncio
@@ -170,20 +201,23 @@ async def test_reminder_skipped_invalid_guest_email(db_engine: object) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
     target_ci = date(2026, 7, 16)
-    await _seed_booking_for_reminder(
+    ids = await _seed_booking_for_reminder(
         db_engine,
         first_night=target_ci,
         guest_email="ota@guests.openpms.invalid",
         booking_status="confirmed",
     )
-    send_m, gs = _patches_send()
-    with send_m as send_email_mock, gs:
-        with patch(
-            "app.tasks.email_tasks.checkin_reminder_target_date",
-            return_value=target_ci,
-        ):
-            await _send_checkin_reminders_async()
-    send_email_mock.assert_not_awaited()
+    try:
+        send_m, gs = _patches_send()
+        with send_m as send_email_mock, gs:
+            with patch(
+                "app.tasks.email_tasks.checkin_reminder_target_date",
+                return_value=target_ci,
+            ):
+                await _send_checkin_reminders_async()
+        send_email_mock.assert_not_awaited()
+    finally:
+        await _delete_reminder_tenant(db_engine, ids["tenant_id"])
 
 
 @pytest.mark.asyncio
@@ -191,40 +225,46 @@ async def test_reminder_skipped_cancelled_booking(db_engine: object) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
     target_ci = date(2026, 7, 17)
-    await _seed_booking_for_reminder(
+    ids = await _seed_booking_for_reminder(
         db_engine,
         first_night=target_ci,
         guest_email="cancel@example.com",
         booking_status="cancelled",
     )
-    send_m, gs = _patches_send()
-    with send_m as send_email_mock, gs:
-        with patch(
-            "app.tasks.email_tasks.checkin_reminder_target_date",
-            return_value=target_ci,
-        ):
-            await _send_checkin_reminders_async()
-    send_email_mock.assert_not_awaited()
+    try:
+        send_m, gs = _patches_send()
+        with send_m as send_email_mock, gs:
+            with patch(
+                "app.tasks.email_tasks.checkin_reminder_target_date",
+                return_value=target_ci,
+            ):
+                await _send_checkin_reminders_async()
+        send_email_mock.assert_not_awaited()
+    finally:
+        await _delete_reminder_tenant(db_engine, ids["tenant_id"])
 
 
 @pytest.mark.asyncio
 async def test_reminder_not_sent_wrong_checkin_date(db_engine: object) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
-    await _seed_booking_for_reminder(
+    ids = await _seed_booking_for_reminder(
         db_engine,
         first_night=date(2026, 9, 1),
         guest_email="later@example.com",
         booking_status="confirmed",
     )
-    send_m, gs = _patches_send()
-    with send_m as send_email_mock, gs:
-        with patch(
-            "app.tasks.email_tasks.checkin_reminder_target_date",
-            return_value=date(2026, 7, 20),
-        ):
-            await _send_checkin_reminders_async()
-    send_email_mock.assert_not_awaited()
+    try:
+        send_m, gs = _patches_send()
+        with send_m as send_email_mock, gs:
+            with patch(
+                "app.tasks.email_tasks.checkin_reminder_target_date",
+                return_value=date(2026, 7, 20),
+            ):
+                await _send_checkin_reminders_async()
+        send_email_mock.assert_not_awaited()
+    finally:
+        await _delete_reminder_tenant(db_engine, ids["tenant_id"])
 
 
 @pytest.mark.asyncio
@@ -232,18 +272,21 @@ async def test_reminder_idempotent_second_run_same_day(db_engine: object) -> Non
     if not _database_url():
         pytest.skip("DATABASE_URL required")
     target_ci = date(2026, 7, 21)
-    await _seed_booking_for_reminder(
+    ids = await _seed_booking_for_reminder(
         db_engine,
         first_night=target_ci,
         guest_email="twice@example.com",
         booking_status="confirmed",
     )
-    send_m, gs = _patches_send()
-    with send_m as send_email_mock, gs:
-        with patch(
-            "app.tasks.email_tasks.checkin_reminder_target_date",
-            return_value=target_ci,
-        ):
-            await _send_checkin_reminders_async()
-            await _send_checkin_reminders_async()
-    assert send_email_mock.await_count == 1
+    try:
+        send_m, gs = _patches_send()
+        with send_m as send_email_mock, gs:
+            with patch(
+                "app.tasks.email_tasks.checkin_reminder_target_date",
+                return_value=target_ci,
+            ):
+                await _send_checkin_reminders_async()
+                await _send_checkin_reminders_async()
+        assert send_email_mock.await_count == 1
+    finally:
+        await _delete_reminder_tenant(db_engine, ids["tenant_id"])

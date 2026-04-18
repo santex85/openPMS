@@ -47,6 +47,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       CELERY_BROKER_URL: redis://redis:6379/0
       ALLOW_PUBLIC_REGISTRATION: ${ALLOW_PUBLIC_REGISTRATION:-true}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM_DEFAULT: ${EMAIL_FROM_DEFAULT}
     healthcheck:
       test:
         [
