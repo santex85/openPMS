@@ -8,6 +8,7 @@ SELECT
   b.status,
   b.source,
   b.total_amount,
+  b.notes AS notes,
   g.id AS g_id,
   g.first_name,
   g.last_name,

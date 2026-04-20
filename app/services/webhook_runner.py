@@ -74,6 +74,7 @@ def booking_quick_snapshot(booking: Booking) -> dict[str, object | None]:
         "check_in": ci.isoformat() if ci else None,
         "check_out": co.isoformat() if co else None,
         "room_id": str(rid) if rid else None,
+        "notes": booking.notes,
     }
 
 

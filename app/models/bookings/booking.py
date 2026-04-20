@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -67,6 +68,7 @@ class Booking(Base):
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     guest: Mapped["Guest"] = relationship(
         "Guest",

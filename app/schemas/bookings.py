@@ -172,6 +172,11 @@ class BookingPatchRequest(BaseModel):
         max_length=512,
         description="Optional reason when cancelling; included in webhook booking.cancelled.",
     )
+    notes: str | None = Field(
+        None,
+        max_length=8000,
+        description="Optional staff notes on the booking (internal / PMS).",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +199,7 @@ class BookingTapeRead(BaseModel):
     check_out_date: date | None = None
     room_id: UUID | None = None
     room_type_id: UUID | None = None
+    notes: str | None = None
 
 
 class BookingTapePage(BaseModel):

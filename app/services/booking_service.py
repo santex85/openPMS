@@ -76,6 +76,13 @@ def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
         ext_out: str | None = str(ext_ref)
     else:
         ext_out = None
+    raw_notes = row.get("notes")
+    notes_out: str | None
+    if raw_notes is None or raw_notes == "":
+        notes_out = None
+    else:
+        notes_out = str(raw_notes)
+
     return BookingTapeRead(
         id=row["id"],
         tenant_id=row["tenant_id"],
@@ -90,6 +97,7 @@ def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
         check_out_date=row["check_out_date"],
         room_id=row["room_id"],
         room_type_id=row["room_type_id"],
+        notes=notes_out,
     )
 
 
@@ -767,6 +775,17 @@ async def patch_booking(
     )
     if booking is None:
         raise PatchBookingError("booking not found", status_code=404)
+
+    if "notes" in data:
+        n = data.pop("notes")
+        if n is None or (isinstance(n, str) and n.strip() == ""):
+            booking.notes = None
+        else:
+            booking.notes = str(n).strip()[:8000]
+
+    if not data:
+        await session.flush()
+        return None
 
     prev_booking_status = booking.status
     lines = list(booking.lines)
