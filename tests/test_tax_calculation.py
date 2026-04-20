@@ -2,7 +2,11 @@
 
 from decimal import Decimal
 
-from app.services.tax_service import calculate_taxes_from_rules
+from app.models.billing.tax_config import TaxMode
+from app.services.tax_service import (
+    calculate_country_pack_tax_posting,
+    calculate_taxes_from_rules,
+)
 
 
 def test_thailand_seven_plus_ten_compound() -> None:
@@ -96,3 +100,59 @@ def test_inclusive_extracts_from_gross() -> None:
     assert len(result.lines) == 1
     assert result.lines[0].code == "VAT"
     assert result.total_with_taxes == Decimal("107.00")
+
+
+def test_country_pack_posting_inclusive_keeps_gross_total() -> None:
+    rules = [
+        {
+            "code": "VAT",
+            "name": "VAT",
+            "rate": 0.07,
+            "inclusive": False,
+            "applies_to": ["all"],
+            "compound_after": None,
+            "active": True,
+        },
+        {
+            "code": "SERVICE_CHARGE",
+            "name": "Service Charge",
+            "rate": 0.10,
+            "inclusive": False,
+            "applies_to": ["room_charge"],
+            "compound_after": "VAT",
+            "active": True,
+        },
+    ]
+    posting = calculate_country_pack_tax_posting(
+        Decimal("30000.00"),
+        rules,
+        applies_to_category="room_charge",
+        mode=TaxMode.inclusive,
+    )
+    assert [line.code for line in posting.lines] == ["VAT", "SERVICE_CHARGE"]
+    assert posting.total_amount == Decimal("30000.00")
+    assert posting.room_charge_amount == Decimal("25310.11")
+    assert sum((line.amount for line in posting.lines), Decimal("0.00")) == Decimal(
+        "4689.89"
+    )
+
+
+def test_country_pack_posting_off_removes_auto_taxes() -> None:
+    posting = calculate_country_pack_tax_posting(
+        Decimal("30000.00"),
+        [
+            {
+                "code": "VAT",
+                "name": "VAT",
+                "rate": 0.07,
+                "inclusive": False,
+                "applies_to": ["all"],
+                "active": True,
+            },
+        ],
+        applies_to_category="room_charge",
+        mode=TaxMode.off,
+    )
+    assert posting.lines == []
+    assert posting.room_charge_amount == Decimal("30000.00")
+    assert posting.total_amount == Decimal("30000.00")

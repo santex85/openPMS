@@ -506,13 +506,18 @@ async def ingest_channex_booking(
                     ),
                 )
             await session.flush()
-            await _update_room_charge_folio(session, tenant_id, booking.id, total)
-            await replace_country_pack_tax_charges(
+            room_charge_amount = await replace_country_pack_tax_charges(
                 session,
                 tenant_id,
                 booking.id,
                 booking.property_id,
                 total,
+            )
+            await _update_room_charge_folio(
+                session,
+                tenant_id,
+                booking.id,
+                room_charge_amount,
             )
             guest = await session.scalar(
                 select(Guest).where(
@@ -617,12 +622,18 @@ async def ingest_channex_booking(
                 ),
             )
             await session.flush()
-            await replace_country_pack_tax_charges(
+            room_charge_amount = await replace_country_pack_tax_charges(
                 session,
                 tenant_id,
                 booking.id,
                 property_id,
                 total,
+            )
+            await _update_room_charge_folio(
+                session,
+                tenant_id,
+                booking.id,
+                room_charge_amount,
             )
             night_list = [d for d, _ in per_night]
             picked = await _pick_first_free_room_for_stay(

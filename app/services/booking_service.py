@@ -321,12 +321,18 @@ async def create_booking(
         ),
     )
     await session.flush()
-    await replace_country_pack_tax_charges(
+    room_charge_amount = await replace_country_pack_tax_charges(
         session,
         tenant_id,
         booking.id,
         body.property_id,
         total,
+    )
+    await _update_folio_charge_amount(
+        session,
+        tenant_id,
+        booking.id,
+        room_charge_amount,
     )
 
     night_list = [d for d, _ in per_night]
@@ -818,12 +824,18 @@ async def patch_booking(
             # Core DELETE leaves stale BookingLine objects in the identity map; next selectinload
             # must load only the new rows from DB for assign_booking_room.
             session.expire(booking, ["lines"])
-            await replace_country_pack_tax_charges(
+            room_charge_amount = await replace_country_pack_tax_charges(
                 session,
                 tenant_id,
                 booking.id,
                 booking.property_id,
                 total,
+            )
+            await _update_folio_charge_amount(
+                session,
+                tenant_id,
+                booking.id,
+                room_charge_amount,
             )
             if prior_room_to_restore is not None:
                 await assign_booking_room(

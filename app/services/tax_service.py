@@ -1,5 +1,6 @@
 """Country-agnostic tax calculation from CountryPack JSONB tax rules."""
 
+from dataclasses import dataclass
 from collections import defaultdict, deque
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
@@ -11,6 +12,15 @@ from app.models.billing.tax_config import TaxConfig, TaxMode
 from app.models.core.country_pack import CountryPack
 from app.schemas.country_pack import TaxCalculationResponse, TaxLineResponse
 from app.schemas.tax_config import TaxBreakdown, TaxConfigCreate
+
+
+@dataclass(frozen=True)
+class CountryPackTaxPosting:
+    """How country-pack taxes should be posted into folio for a property tax mode."""
+
+    lines: list[TaxLineResponse]
+    room_charge_amount: Decimal
+    total_amount: Decimal
 
 
 def _q2(value: Decimal) -> Decimal:
@@ -162,6 +172,50 @@ def calculate_taxes_from_rules(
         lines=lines,
         subtotal=base_price,
         total_with_taxes=_q2(running),
+    )
+
+
+def calculate_country_pack_tax_posting(
+    base_price: Decimal,
+    raw_rules: object,
+    *,
+    applies_to_category: str,
+    mode: TaxMode | None,
+) -> CountryPackTaxPosting:
+    """
+    Convert country-pack tax rules into folio posting behavior for the property's tax mode.
+
+    * off: no tax lines, room charge remains gross.
+    * exclusive / None: current behavior, room charge remains gross and taxes add on top.
+    * inclusive: extract tax portions from the gross room charge and post them as separate
+      lines while reducing the room charge line so the folio total stays unchanged.
+    """
+    gross = _q2(base_price)
+    if mode == TaxMode.off:
+        return CountryPackTaxPosting(lines=[], room_charge_amount=gross, total_amount=gross)
+
+    adjusted_rules = _parse_rules(raw_rules)
+    if mode == TaxMode.inclusive:
+        adjusted_rules = [{**rule, "inclusive": True} for rule in adjusted_rules]
+
+    calc = calculate_taxes_from_rules(
+        gross,
+        adjusted_rules,
+        applies_to_category=applies_to_category,
+    )
+    if mode == TaxMode.inclusive:
+        tax_total = _q2(sum((line.amount for line in calc.lines), Decimal("0.00")))
+        room_charge_amount = _q2(gross - tax_total)
+        return CountryPackTaxPosting(
+            lines=calc.lines,
+            room_charge_amount=room_charge_amount,
+            total_amount=gross,
+        )
+
+    return CountryPackTaxPosting(
+        lines=calc.lines,
+        room_charge_amount=gross,
+        total_amount=_q2(calc.total_with_taxes),
     )
 
 

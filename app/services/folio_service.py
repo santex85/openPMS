@@ -10,6 +10,8 @@ from app.models.bookings.booking import Booking
 from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
 from app.services.audit_service import record_audit
+from app.models.billing.tax_config import TaxMode
+from app.models.core.country_pack import CountryPack
 from app.schemas.folio import CHARGE_CATEGORIES, FolioPostRequest
 
 COUNTRY_PACK_TAX_PREFIX = "[country-pack-tax]"
@@ -288,14 +290,17 @@ async def replace_country_pack_tax_charges(
     booking_id: UUID,
     property_id: UUID,
     base_room_charge: Decimal,
-) -> None:
+) -> Decimal:
     """
     Remove prior auto-generated country-pack tax lines and post new ones from the
     property's pack. No-op (after cleanup) when property has no country_pack_code.
     """
     from app.models.core.property import Property
 
-    from app.services.tax_service import calculate_taxes
+    from app.services.tax_service import (
+        calculate_country_pack_tax_posting,
+        get_tax_config,
+    )
 
     await _require_booking(session, tenant_id, booking_id)
 
@@ -317,16 +322,26 @@ async def replace_country_pack_tax_charges(
         ),
     )
     if prop is None or not prop.country_pack_code:
-        return
+        return base_room_charge.quantize(Decimal("0.01"))
 
-    calc = await calculate_taxes(
-        session,
-        tenant_id,
-        prop.country_pack_code,
-        base_room_charge,
-        "room_charge",
+    cfg = await get_tax_config(session, tenant_id, property_id)
+    mode = cfg.tax_mode if cfg is not None else TaxMode.exclusive
+    if mode == TaxMode.off:
+        return base_room_charge.quantize(Decimal("0.01"))
+
+    pack = await session.scalar(
+        select(CountryPack).where(CountryPack.code == prop.country_pack_code.strip()),
     )
-    for line in calc.lines:
+    if pack is None:
+        return base_room_charge.quantize(Decimal("0.01"))
+
+    posting = calculate_country_pack_tax_posting(
+        base_room_charge,
+        pack.taxes,
+        applies_to_category="room_charge",
+        mode=mode,
+    )
+    for line in posting.lines:
         session.add(
             FolioTransaction(
                 tenant_id=tenant_id,
@@ -340,3 +355,4 @@ async def replace_country_pack_tax_charges(
             ),
         )
     await session.flush()
+    return posting.room_charge_amount

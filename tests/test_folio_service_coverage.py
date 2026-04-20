@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.models.billing.tax_config import TaxConfig, TaxMode
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
 from app.models.bookings.folio_transaction import FolioTransaction
@@ -348,13 +349,14 @@ async def test_replace_country_pack_tax_full_path(db_engine: object) -> None:
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(ctx["tenant_id"])},
             )
-            await replace_country_pack_tax_charges(
+            room_charge_amount = await replace_country_pack_tax_charges(
                 session,
                 ctx["tenant_id"],
                 ctx["booking_unpaid"],
                 ctx["property_id"],
                 Decimal("1000.00"),
             )
+            assert room_charge_amount == Decimal("1000.00")
 
     async with factory() as session:
         await session.execute(
@@ -375,3 +377,110 @@ async def test_replace_country_pack_tax_full_path(db_engine: object) -> None:
     assert all(
         (r.description or "").startswith(COUNTRY_PACK_TAX_PREFIX) for r in tax_rows
     )
+
+
+@pytest.mark.asyncio
+async def test_replace_country_pack_tax_inclusive_keeps_folio_total_flat(
+    db_engine: object,
+) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    ctx = await _seed_property_with_two_bookings(db_engine)
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(ctx["tenant_id"])},
+            )
+            session.add(
+                TaxConfig(
+                    tenant_id=ctx["tenant_id"],
+                    property_id=ctx["property_id"],
+                    tax_mode=TaxMode.inclusive,
+                    tax_name="VAT",
+                    tax_rate=Decimal("0.07"),
+                ),
+            )
+            await session.flush()
+            await replace_country_pack_tax_charges(
+                session,
+                ctx["tenant_id"],
+                ctx["booking_unpaid"],
+                ctx["property_id"],
+                Decimal("1000.00"),
+            )
+
+    async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+            {"tid": str(ctx["tenant_id"])},
+        )
+        rows = (
+            await session.scalars(
+                select(FolioTransaction)
+                .where(
+                    FolioTransaction.tenant_id == ctx["tenant_id"],
+                    FolioTransaction.booking_id == ctx["booking_unpaid"],
+                    FolioTransaction.transaction_type == "Charge",
+                )
+                .order_by(FolioTransaction.created_at.asc(), FolioTransaction.id.asc()),
+            )
+        ).all()
+    tax_rows = [r for r in rows if r.category == "tax"]
+    assert sum((r.amount for r in tax_rows), Decimal("0.00")) == Decimal("156.33")
+
+
+@pytest.mark.asyncio
+async def test_replace_country_pack_tax_off_disables_auto_tax_rows(
+    db_engine: object,
+) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    ctx = await _seed_property_with_two_bookings(db_engine)
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(ctx["tenant_id"])},
+            )
+            session.add(
+                TaxConfig(
+                    tenant_id=ctx["tenant_id"],
+                    property_id=ctx["property_id"],
+                    tax_mode=TaxMode.off,
+                    tax_name="VAT",
+                    tax_rate=Decimal("0.07"),
+                ),
+            )
+            await session.flush()
+            room_charge_amount = await replace_country_pack_tax_charges(
+                session,
+                ctx["tenant_id"],
+                ctx["booking_unpaid"],
+                ctx["property_id"],
+                Decimal("1000.00"),
+            )
+            assert room_charge_amount == Decimal("1000.00")
+
+    async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+            {"tid": str(ctx["tenant_id"])},
+        )
+        rows = (
+            await session.scalars(
+                select(FolioTransaction).where(
+                    FolioTransaction.tenant_id == ctx["tenant_id"],
+                    FolioTransaction.booking_id == ctx["booking_unpaid"],
+                    FolioTransaction.transaction_type == "Charge",
+                ),
+            )
+        ).all()
+    tax_rows = [r for r in rows if r.category == "tax"]
+    assert tax_rows == []
