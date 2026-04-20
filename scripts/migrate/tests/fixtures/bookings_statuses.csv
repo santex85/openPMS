@@ -1,0 +1,7 @@
+Booking ID,Checkin date,Checkout date,Room types,Rate plans,Primary guest first name,Primary guest last name,Country,Source,Status,Notes,Adults,Total
+bs-conf,2026-06-01,2026-06-03,Std,BAR,A,B,Thailand,direct,Confirmed,,1,100
+bs-in,2026-06-10,2026-06-12,Std,BAR,A,B,Thailand,direct,Checked in,,1,100
+bs-out,2026-06-15,2026-06-17,Std,BAR,A,B,Thailand,direct,Checked out,,1,100
+bs-can,2026-06-20,2026-06-22,Std,BAR,A,B,Thailand,direct,Cancelled,,1,100
+bs-noshow,2026-06-25,2026-06-27,Std,BAR,A,B,Thailand,direct,No show,,1,100
+bs-empty,2026-07-01,2026-07-03,Std,BAR,A,B,Thailand,direct,,,1,100

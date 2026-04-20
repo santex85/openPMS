@@ -1,0 +1,3 @@
+Booking ID,Checkin date,Checkout date,Room types,Rate plans,Primary guest first name,Primary guest last name,Country,Source,Status,Notes,Adults,Total
+bm-1,2026-08-01,2026-08-03,Deluxe,BAR,X,Y,Thailand,direct,Confirmed,,1,100
+bm-2,2026-08-05,2026-08-07,Suite,BAR,X,Y,Thailand,direct,Confirmed,,1,100

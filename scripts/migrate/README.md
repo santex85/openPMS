@@ -128,3 +128,31 @@ PYTHONPATH=. python -m scripts.migrate \
 ## Batching / progress (v1.2)
 
 **`--batch-size`** (default **50**) chunks **guest** and **booking** processing for progress logging: after each chunk, stdout logs `guests progress:` / `bookings progress:` and the audit logger records a **`progress`** / **`chunk_done`** line. Room bulk creation still uses API chunks of **200** (unchanged).
+
+## Integration tests (MIG-19 / MIG-20)
+
+Optional pytest tests under [`scripts/migrate/tests/integration/`](tests/integration/) are marked **`integration`** and **skip** unless env vars are set.
+
+| Variable | Used for |
+|----------|----------|
+| `MIG_SATVA_DIR` | Directory containing `guests_export_*.csv` and `bookings_report*.csv` (Satva Samui export). |
+| `MIG_OPENPMS_URL` | API base URL (e.g. `http://localhost:8000`). |
+| `MIG_OPENPMS_TOKEN` | JWT with write scopes. |
+| `MIG_PROPERTY_ID` | Target property UUID. |
+
+Examples (from repo root, venv active):
+
+```bash
+# Unit + integration dry-run only (no API writes)
+export MIG_SATVA_DIR=/path/to/satva/csv
+pytest -m integration scripts/migrate/tests/integration/test_dry_run_satva.py
+
+# Full migration + resume idempotency (writes to OpenPMS)
+export MIG_SATVA_DIR=...
+export MIG_OPENPMS_URL=http://localhost:8000
+export MIG_OPENPMS_TOKEN="$JWT"
+export MIG_PROPERTY_ID="00000000-0000-0000-0000-000000000000"
+pytest -m integration scripts/migrate/tests/integration/test_full_migration_localhost.py
+```
+
+Default CI / local run without these variables: **`pytest scripts/migrate/tests/`** — integration tests are skipped; extended **PrenoAdapter** unit tests in `test_preno_adapter_mapping.py` always run.

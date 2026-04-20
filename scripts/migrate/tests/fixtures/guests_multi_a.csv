@@ -1,0 +1,3 @@
+id,name,surname,email,phone,country,note,is_blacklisted
+dup-1,First,A,a_first@x.com,+1,,,0
+uniq-2,Second,B,b2@x.com,+2,,,0

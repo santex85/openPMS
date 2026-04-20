@@ -1,0 +1,12 @@
+id,name,surname,email,phone,country,note,is_blacklisted
+,NoId,Person,,,,,0
+edge-1,Thai,Guest,  MIXED@Example.Com , +66 (81) 234-5678 ,Thailand,,0
+edge-2,Ru,One,,+7 999 111-22-33,Russian Federation,,1
+edge-3,Alpha,Two,iso@test.com,,TH,,0
+edge-4,Mars,Visitor,m@m.com,,Mars,,0
+edge-5,NoBl,Guest,,,,,0
+edge-6,YesBl,,y@x.com,,,,yes
+edge-7,TrueBl,,t@x.com,,,,true
+edge-8,BlackWord,,bw@x.com,,,,blacklisted
+edge-9,ZeroBl,,z@x.com,,,,0
+edge-10,NoWord,,nw@x.com,,,,no
