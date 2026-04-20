@@ -69,6 +69,14 @@ class BookingCreateRequest(BaseModel):
         default=False,
         description="If true, always create a new guest row (no dedupe by email).",
     )
+    external_booking_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Opaque id from an external PMS (e.g. Preno). Used for idempotent imports; "
+            "duplicate values return HTTP 409."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_stay_dates(self) -> "BookingCreateRequest":
@@ -177,6 +185,7 @@ class BookingTapeRead(BaseModel):
     tenant_id: UUID
     property_id: UUID
     guest_id: UUID
+    external_booking_id: str | None = None
     status: str
     source: str
     total_amount: Decimal

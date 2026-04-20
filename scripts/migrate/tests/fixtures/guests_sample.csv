@@ -1,0 +1,3 @@
+id,name,surname,email,phone,country,note,is_blacklisted
+g1,Ann,Smith,ann@example.com,+12025550101,Thailand,,0
+g2,Bob,Jones,,+12025550102,Russia,Note one,1

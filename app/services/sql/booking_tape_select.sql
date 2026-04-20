@@ -4,6 +4,7 @@ SELECT
   b.tenant_id,
   b.property_id,
   b.guest_id,
+  b.external_booking_id AS external_booking_id,
   b.status,
   b.source,
   b.total_amount,

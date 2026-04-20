@@ -53,10 +53,12 @@ from app.services.availability_lock import (
 )
 from app.services.booking_service import (
     AssignBookingRoomError,
+    DuplicateExternalBookingError,
     InvalidBookingContextError,
     PatchBookingError,
     create_booking,
     get_booking_tape,
+    get_booking_tape_by_external_id,
     list_bookings_enriched,
     patch_booking,
 )
@@ -134,9 +136,23 @@ async def get_bookings(
     _: BookingsReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
-    property_id: UUID = Query(..., description="Property to list bookings for"),
-    start_date: date = Query(..., description="Inclusive window start (night date)"),
-    end_date: date = Query(..., description="Inclusive window end (night date)"),
+    property_id: UUID | None = Query(
+        None,
+        description="Property to list bookings for (optional when external_booking_id is set)",
+    ),
+    start_date: date | None = Query(
+        None,
+        description="Inclusive window start (night date); required unless external_booking_id is set",
+    ),
+    end_date: date | None = Query(
+        None,
+        description="Inclusive window end (night date); required unless external_booking_id is set",
+    ),
+    external_booking_id: str | None = Query(
+        None,
+        max_length=128,
+        description="When set, look up a single booking by external id (migration / idempotency).",
+    ),
     status_filter: str | None = Query(
         None,
         alias="status",
@@ -145,6 +161,29 @@ async def get_bookings(
     limit: int = Query(100, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Rows to skip"),
 ) -> BookingTapePage:
+    if external_booking_id is not None and str(external_booking_id).strip():
+        ext = str(external_booking_id).strip()
+        row = await get_booking_tape_by_external_id(session, tenant_id, ext)
+        if row is None:
+            return BookingTapePage(items=[], total=0, limit=limit, offset=offset)
+        if property_id is not None and row.property_id != property_id:
+            return BookingTapePage(items=[], total=0, limit=limit, offset=offset)
+        return BookingTapePage(
+            items=[row],
+            total=1,
+            limit=limit,
+            offset=offset,
+        )
+
+    if property_id is None or start_date is None or end_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "property_id, start_date, and end_date are required "
+                "unless external_booking_id is provided"
+            ),
+        )
+
     role = getattr(request.state, "user_role", None)
     if role is not None and role.lower() == "housekeeper":
         today = datetime.now(UTC).date()
@@ -627,6 +666,11 @@ async def post_booking(
 ) -> BookingCreateResponse:
     try:
         out = await create_booking(session, tenant_id, body)
+    except DuplicateExternalBookingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.detail,
+        ) from exc
     except InsufficientInventoryError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

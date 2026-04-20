@@ -25,12 +25,14 @@ from app.models.rates.rate_plan import RatePlan
 from app.schemas.bookings import BookingCreateRequest, BookingPatchRequest, GuestPayload
 from app.services.booking_service import (
     AssignBookingRoomError,
+    DuplicateExternalBookingError,
     InvalidBookingContextError,
     _require_rate_plan_on_property,
     _require_room_type_on_property,
     assign_booking_room,
     create_booking,
     get_booking_tape,
+    get_booking_tape_by_external_id,
     list_bookings_enriched,
     patch_booking,
 )
@@ -250,6 +252,138 @@ async def test_create_booking_direct(
     assert out.total_amount == Decimal("110.00")
     assert out.guest_merged is False
     assert len(out.nights) == 2
+
+
+@pytest.mark.asyncio
+async def test_create_booking_duplicate_external_id_rejected(
+    booking_create_ctx: dict[str, UUID],
+    db_engine: object,
+) -> None:
+    tid = booking_create_ctx["tenant_id"]
+    pid = booking_create_ctx["property_id"]
+    rtid = booking_create_ctx["room_type_id"]
+    rpid = booking_create_ctx["rate_plan_id"]
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    ext = "preno-import-duplicate-test"
+    body = BookingCreateRequest(
+        property_id=pid,
+        room_type_id=rtid,
+        rate_plan_id=rpid,
+        check_in=date(2026, 9, 1),
+        check_out=date(2026, 9, 3),
+        guest=GuestPayload(
+            first_name="Ext",
+            last_name="One",
+            email="ext1@cov.example.com",
+            phone="+19999990011",
+        ),
+        status="confirmed",
+        source="test",
+        force_new_guest=False,
+        external_booking_id=ext,
+    )
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            await create_booking(session, tid, body)
+    body2 = body.model_copy(
+        update={
+            "guest": GuestPayload(
+                first_name="Ext",
+                last_name="Two",
+                email="ext2@cov.example.com",
+                phone="+19999990012",
+            ),
+        },
+    )
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            with pytest.raises(DuplicateExternalBookingError):
+                await create_booking(session, tid, body2)
+
+
+@pytest.mark.asyncio
+async def test_get_booking_tape_by_external_id(
+    booking_create_ctx: dict[str, UUID],
+    db_engine: object,
+) -> None:
+    tid = booking_create_ctx["tenant_id"]
+    pid = booking_create_ctx["property_id"]
+    rtid = booking_create_ctx["room_type_id"]
+    rpid = booking_create_ctx["rate_plan_id"]
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    ext = "mig16-service-lookup"
+    body = BookingCreateRequest(
+        property_id=pid,
+        room_type_id=rtid,
+        rate_plan_id=rpid,
+        check_in=date(2026, 11, 1),
+        check_out=date(2026, 11, 3),
+        guest=GuestPayload(
+            first_name="Lookup",
+            last_name="Ext",
+            email="lookup.ext@cov.example.com",
+            phone="+19999990021",
+        ),
+        status="confirmed",
+        source="test",
+        force_new_guest=False,
+        external_booking_id=ext,
+    )
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            await create_booking(session, tid, body)
+    body_plain = BookingCreateRequest(
+        property_id=pid,
+        room_type_id=rtid,
+        rate_plan_id=rpid,
+        check_in=date(2026, 12, 1),
+        check_out=date(2026, 12, 2),
+        guest=GuestPayload(
+            first_name="No",
+            last_name="Ext",
+            email="no.ext@cov.example.com",
+            phone="+19999990022",
+        ),
+        status="confirmed",
+        source="test",
+        force_new_guest=False,
+    )
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            await create_booking(session, tid, body_plain)
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            row = await get_booking_tape_by_external_id(session, tid, ext)
+    assert row is not None
+    assert row.external_booking_id == ext
+    async with factory() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tid)},
+            )
+            miss = await get_booking_tape_by_external_id(session, tid, "missing-ext-id")
+    assert miss is None
 
 
 @pytest.mark.asyncio

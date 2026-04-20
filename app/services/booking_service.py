@@ -66,11 +66,17 @@ def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
         first_name=row["first_name"],
         last_name=row["last_name"],
     )
+    ext_ref = row.get("external_booking_id")
+    if ext_ref is not None and ext_ref != "":
+        ext_out: str | None = str(ext_ref)
+    else:
+        ext_out = None
     return BookingTapeRead(
         id=row["id"],
         tenant_id=row["tenant_id"],
         property_id=row["property_id"],
         guest_id=row["guest_id"],
+        external_booking_id=ext_out,
         status=row["status"],
         source=row["source"],
         total_amount=row["total_amount"],
@@ -84,6 +90,15 @@ def _booking_tape_from_mapping(row: Mapping[str, object]) -> BookingTapeRead:
 
 class InvalidBookingContextError(Exception):
     """Room type or rate plan is missing or not under the given property."""
+
+
+class DuplicateExternalBookingError(Exception):
+    """Another booking already uses this external_booking_id for the tenant."""
+
+    def __init__(self, detail: str = "booking with this external_booking_id already exists") -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = 409
 
 
 class AssignBookingRoomError(Exception):
@@ -247,6 +262,18 @@ async def create_booking(
 ) -> BookingCreateResponse:
     nights = iter_stay_nights(body.check_in, body.check_out)
 
+    ext_ref: str | None = None
+    if body.external_booking_id is not None and str(body.external_booking_id).strip():
+        ext_ref = str(body.external_booking_id).strip()[:128]
+        dup_id = await session.scalar(
+            select(Booking.id).where(
+                Booking.tenant_id == tenant_id,
+                Booking.external_booking_id == ext_ref,
+            ),
+        )
+        if dup_id is not None:
+            raise DuplicateExternalBookingError()
+
     await _require_room_type_on_property(
         session,
         tenant_id,
@@ -289,6 +316,7 @@ async def create_booking(
         property_id=body.property_id,
         guest_id=guest.id,
         rate_plan_id=body.rate_plan_id,
+        external_booking_id=ext_ref,
         status=body.status,
         source=body.source.strip(),
         total_amount=total,
@@ -431,6 +459,34 @@ LIMIT :limit OFFSET :offset
     result = await session.execute(sql, data_params)
     rows = [_booking_tape_from_mapping(row) for row in result.mappings().all()]
     return rows, total
+
+
+async def get_booking_tape_by_external_id(
+    session: AsyncSession,
+    tenant_id: UUID,
+    external_booking_id: str,
+) -> BookingTapeRead | None:
+    """Return tape row for a booking by external_booking_id (tenant-scoped), if any."""
+    ext = external_booking_id.strip()
+    if not ext:
+        return None
+    sql = text(
+        _LINE_AGG_CTE
+        + _BOOKING_TAPE_SELECT
+        + """
+WHERE b.tenant_id = CAST(:tenant_id AS uuid)
+  AND b.external_booking_id = :ext_id
+LIMIT 1
+""",
+    )
+    result = await session.execute(
+        sql,
+        {"tenant_id": str(tenant_id), "ext_id": ext[:128]},
+    )
+    row = result.mappings().first()
+    if row is None:
+        return None
+    return _booking_tape_from_mapping(row)
 
 
 async def get_booking_tape(
