@@ -14,6 +14,8 @@ FolioCategoryLiteral = Literal[
     "minibar",
     "tax",
     "discount",
+    "misc",
+    "service",
     "payment",
 ]
 
@@ -25,6 +27,8 @@ CHARGE_CATEGORIES: frozenset[str] = frozenset(
         "minibar",
         "tax",
         "discount",
+        "misc",
+        "service",
     },
 )
 

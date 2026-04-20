@@ -256,6 +256,36 @@ async def test_add_folio_entry_charge_discount(db_engine: object) -> None:
 
 
 @pytest.mark.asyncio
+async def test_add_folio_entry_charge_misc(db_engine: object) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    ctx = await _seed_property_with_two_bookings(db_engine)
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(ctx["tenant_id"])},
+            )
+            body = FolioPostRequest(
+                entry_type="charge",
+                amount=Decimal("99.00"),
+                category="misc",
+                description="Extra",
+            )
+            tx = await add_folio_entry(
+                session,
+                ctx["tenant_id"],
+                ctx["booking_unpaid"],
+                body,
+                created_by=None,
+            )
+            assert tx.category == "misc"
+            assert tx.amount == Decimal("99.00")
+
+
+@pytest.mark.asyncio
 async def test_add_folio_entry_payment_with_method(db_engine: object) -> None:
     if not _database_url():
         pytest.skip("DATABASE_URL required")
