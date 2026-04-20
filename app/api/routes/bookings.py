@@ -53,10 +53,12 @@ from app.services.availability_lock import (
 )
 from app.services.booking_service import (
     AssignBookingRoomError,
+    DeleteBookingError,
     DuplicateExternalBookingError,
     InvalidBookingContextError,
     PatchBookingError,
     create_booking,
+    delete_booking,
     get_booking_tape,
     get_booking_tape_by_external_id,
     list_bookings_enriched,
@@ -522,6 +524,35 @@ async def delete_booking_folio_transaction(
         transaction_id,
         created_by=user_id,
     )
+
+
+@router.delete(
+    "/{booking_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Hard-delete booking (not allowed after check-in/out)",
+)
+@limiter.limit("60/minute")
+async def delete_booking_by_id(
+    request: Request,
+    _: BookingsWriteRolesDep,
+    booking_id: UUID,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> Response:
+    _ = request
+    try:
+        old_values = await delete_booking(session, tenant_id, booking_id)
+    except DeleteBookingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="booking.delete",
+        entity_type="booking",
+        entity_id=booking_id,
+        old_values=old_values,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch(

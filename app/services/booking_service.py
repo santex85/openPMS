@@ -6,16 +6,20 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session, selectinload
 
+from app.models.billing.stripe_charge import StripeCharge
+from app.models.billing.stripe_payment_method import StripePaymentMethod
 from app.models.bookings.booking import Booking
 from app.models.bookings.booking_line import BookingLine
 from app.models.core.room import Room
 from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
+from app.models.integrations.channex_booking_revision import ChannexBookingRevision
+from app.models.notifications.email_log import EmailLog
 from app.models.rates.rate_plan import RatePlan
 from app.models.core.room_type import RoomType
 from app.schemas.bookings import (
@@ -47,6 +51,7 @@ from app.domain.booking_status import (
     validate_status_transition,
 )
 from app.services.stay_dates import MAX_STAY_NIGHTS, iter_stay_nights
+from app.services.webhook_runner import booking_quick_snapshot
 
 _sql_pkg = files("app.services.sql")
 _LINE_AGG_CTE_IN_WINDOW = _sql_pkg.joinpath(
@@ -112,6 +117,15 @@ class AssignBookingRoomError(Exception):
 
 class PatchBookingError(Exception):
     """Invalid booking patch (dates, inventory, or room conflict)."""
+
+    def __init__(self, detail: str, *, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+
+
+class DeleteBookingError(Exception):
+    """Booking cannot be deleted (wrong status or missing)."""
 
     def __init__(self, detail: str, *, status_code: int = 400) -> None:
         super().__init__(detail)
@@ -962,3 +976,87 @@ async def patch_booking(
         if bal != Decimal("0.00"):
             checkout_balance_warning = bal
     return checkout_balance_warning
+
+
+async def delete_booking(
+    session: AsyncSession,
+    tenant_id: UUID,
+    booking_id: UUID,
+) -> dict[str, object]:
+    """
+    Hard-delete a booking and dependent rows. Releases availability unless the booking
+    was already inactive (cancelled / no_show). Refuses checked_in / checked_out.
+    """
+    booking = await session.scalar(
+        select(Booking)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.id == booking_id,
+        )
+        .options(selectinload(Booking.lines)),
+    )
+    if booking is None:
+        raise DeleteBookingError("booking not found", status_code=404)
+
+    st = normalize_booking_status(booking.status)
+    if st in ("checked_in", "checked_out"):
+        raise DeleteBookingError(
+            "cannot delete booking after check-in or check-out",
+            status_code=409,
+        )
+
+    old_values: dict[str, object] = {
+        "id": str(booking.id),
+        "property_id": str(booking.property_id),
+        **booking_quick_snapshot(booking),
+    }
+
+    inactive = st in ("cancelled", "no_show")
+    if not inactive:
+        await _release_booking_inventory(session, tenant_id, booking)
+
+    await session.execute(
+        delete(StripeCharge).where(
+            StripeCharge.tenant_id == tenant_id,
+            StripeCharge.booking_id == booking_id,
+        ),
+    )
+    await session.execute(
+        update(StripePaymentMethod)
+        .where(
+            StripePaymentMethod.tenant_id == tenant_id,
+            StripePaymentMethod.booking_id == booking_id,
+        )
+        .values(booking_id=None),
+    )
+    await session.execute(
+        update(EmailLog)
+        .where(
+            EmailLog.tenant_id == tenant_id,
+            EmailLog.booking_id == booking_id,
+        )
+        .values(booking_id=None),
+    )
+    await session.execute(
+        update(ChannexBookingRevision)
+        .where(
+            ChannexBookingRevision.tenant_id == tenant_id,
+            ChannexBookingRevision.openpms_booking_id == booking_id,
+        )
+        .values(openpms_booking_id=None),
+    )
+    await session.execute(
+        delete(FolioTransaction).where(
+            FolioTransaction.tenant_id == tenant_id,
+            FolioTransaction.booking_id == booking_id,
+        ),
+    )
+    await session.execute(
+        delete(BookingLine).where(
+            BookingLine.tenant_id == tenant_id,
+            BookingLine.booking_id == booking_id,
+        ),
+    )
+    await session.delete(booking)
+    await session.flush()
+    return old_values

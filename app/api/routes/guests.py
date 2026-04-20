@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import (
     SessionDep,
@@ -25,6 +25,7 @@ from app.services.audit_service import record_audit
 from app.services.guest_service import (
     GuestServiceError,
     create_guest,
+    delete_guest,
     get_guest_with_booking_summaries,
     list_guests,
     patch_guest,
@@ -141,3 +142,28 @@ async def patch_guest_by_id(
         new_values=body.model_dump(exclude_unset=True, mode="json"),
     )
     return GuestRead.model_validate(row)
+
+
+@router.delete("/{guest_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("60/minute")
+async def delete_guest_by_id(
+    request: Request,
+    guest_id: UUID,
+    _: GuestWriteRolesDep,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> Response:
+    _ = request
+    try:
+        row = await delete_guest(session, tenant_id, guest_id)
+    except GuestServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="guest.delete",
+        entity_type="guest",
+        entity_id=guest_id,
+        old_values=GuestRead.model_validate(row).model_dump(mode="json"),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -190,4 +190,32 @@ async def patch_guest(
             "guest with this email already exists",
             status_code=409,
         ) from exc
+    return row
+
+
+async def delete_guest(
+    session: AsyncSession,
+    tenant_id: UUID,
+    guest_id: UUID,
+) -> Guest:
+    row = await get_guest(session, tenant_id, guest_id)
+    if row is None:
+        raise GuestServiceError("guest not found", status_code=404)
+
+    has_bookings = await session.scalar(
+        select(
+            exists().where(
+                Booking.tenant_id == tenant_id,
+                Booking.guest_id == guest_id,
+            ),
+        ),
+    )
+    if has_bookings:
+        raise GuestServiceError(
+            "cannot delete guest with existing bookings; delete bookings first",
+            status_code=409,
+        )
+
+    await session.delete(row)
+    await session.flush()
     return row
