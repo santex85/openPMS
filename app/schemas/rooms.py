@@ -1,7 +1,7 @@
 """Pydantic models for rooms API."""
 
 from datetime import date
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -27,6 +27,24 @@ class RoomCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     status: str = Field(default="available", max_length=64)
     model_config = ConfigDict(extra="forbid")
+
+
+class RoomBulkCreateItem(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    status: str = Field(default="available", max_length=64)
+    model_config = ConfigDict(extra="forbid")
+
+
+class RoomBulkCreate(BaseModel):
+    room_type_id: UUID
+    rooms: list[RoomBulkCreateItem] = Field(..., min_length=1, max_length=200)
+    on_conflict: Literal["skip", "fail"] = "fail"
+    model_config = ConfigDict(extra="forbid")
+
+
+class RoomBulkCreateResult(BaseModel):
+    created: list[RoomRead]
+    skipped: list[str]
 
 
 class RoomPatch(BaseModel):

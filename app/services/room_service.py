@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -13,6 +14,7 @@ from app.models.bookings.booking_line import BookingLine
 from app.models.core.room import Room
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
+from app.schemas.rooms import RoomBulkCreateItem
 
 
 VALID_ROOM_STATUSES = frozenset({"available", "maintenance", "out_of_order"})
@@ -141,6 +143,83 @@ async def create_room(
     await session.flush()
     await recalculate_ledger_total_rooms(session, tenant_id, room_type_id)
     return room
+
+
+async def create_rooms_bulk(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    room_type_id: UUID,
+    items: list[RoomBulkCreateItem],
+    on_conflict: Literal["skip", "fail"],
+) -> tuple[list[Room], list[str]]:
+    """Create many rooms for one category; recalculate availability ledger once."""
+    rt = await session.scalar(
+        select(RoomType).where(
+            RoomType.tenant_id == tenant_id,
+            RoomType.id == room_type_id,
+            RoomType.deleted_at.is_(None),
+        ),
+    )
+    if rt is None:
+        raise RoomServiceError("room type not found", status_code=404)
+
+    batch_seen: set[str] = set()
+    for item in items:
+        name = item.name.strip()
+        if name in batch_seen:
+            raise RoomServiceError(
+                "duplicate room name in batch",
+                status_code=422,
+            )
+        batch_seen.add(name)
+        st = item.status.strip().lower()
+        if st not in VALID_ROOM_STATUSES:
+            raise RoomServiceError(
+                f"status must be one of: {', '.join(sorted(VALID_ROOM_STATUSES))}",
+                status_code=422,
+            )
+
+    stmt_names = select(Room.name).where(
+        Room.tenant_id == tenant_id,
+        Room.room_type_id == room_type_id,
+        Room.deleted_at.is_(None),
+    )
+    res = await session.execute(stmt_names)
+    existing_names = {row[0] for row in res.all()}
+
+    created: list[Room] = []
+    skipped: list[str] = []
+
+    for item in items:
+        name = item.name.strip()
+        st = item.status.strip().lower()
+        if name in existing_names:
+            if on_conflict == "fail":
+                raise RoomServiceError(
+                    f"room name already exists: {name}",
+                    status_code=409,
+                )
+            skipped.append(name)
+            continue
+        room = Room(
+            tenant_id=tenant_id,
+            room_type_id=room_type_id,
+            name=name,
+            status=st,
+            deleted_at=None,
+        )
+        session.add(room)
+        created.append(room)
+        existing_names.add(name)
+
+    if not created:
+        await session.flush()
+        return [], skipped
+
+    await session.flush()
+    await recalculate_ledger_total_rooms(session, tenant_id, room_type_id)
+    return created, skipped
 
 
 async def patch_room(

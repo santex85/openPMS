@@ -18,6 +18,8 @@ from app.api.deps import (
 from app.core.api_scopes import ROOMS_READ, ROOMS_WRITE
 from app.schemas.rooms import (
     AssignableRoomsQueryParams,
+    RoomBulkCreate,
+    RoomBulkCreateResult,
     RoomCreate,
     RoomPatch,
     RoomRead,
@@ -28,6 +30,7 @@ from app.services.room_list_service import property_belongs_to_tenant
 from app.services.room_service import (
     RoomServiceError,
     create_room,
+    create_rooms_bulk,
     get_room,
     list_rooms,
     patch_room,
@@ -182,6 +185,40 @@ async def post_room(
         new_values=RoomRead.model_validate(row).model_dump(mode="json"),
     )
     return RoomRead.model_validate(row)
+
+
+@router.post("/bulk", response_model=RoomBulkCreateResult, status_code=status.HTTP_201_CREATED)
+async def post_rooms_bulk(
+    _: RoomWriteRolesDep,
+    body: RoomBulkCreate,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> RoomBulkCreateResult:
+    try:
+        rows, skipped = await create_rooms_bulk(
+            session,
+            tenant_id,
+            room_type_id=body.room_type_id,
+            items=body.rooms,
+            on_conflict=body.on_conflict,
+        )
+    except RoomServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="room.bulk_create",
+        entity_type="room",
+        entity_id=rows[0].id if rows else None,
+        new_values={
+            "room_ids": [str(r.id) for r in rows],
+            "skipped": skipped,
+        },
+    )
+    return RoomBulkCreateResult(
+        created=[RoomRead.model_validate(r) for r in rows],
+        skipped=skipped,
+    )
 
 
 @router.patch("/{room_id}", response_model=RoomRead)
