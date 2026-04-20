@@ -32,6 +32,7 @@ from app.api.routes import (
     channex_inbound,
     country_packs,
     dashboard,
+    folio_categories,
     guests,
     housekeeping,
     inventory,
@@ -181,8 +182,8 @@ def create_app() -> FastAPI:
             {
                 "name": "settings",
                 "description": (
-                    "Tenant configuration: **properties**, **room-types**, **rooms**, **rate-plans**, "
-                    "**api-keys**, **dashboard** KPIs, and related endpoints."
+                    "Tenant configuration: **properties**, **room-types**, **folio-categories**, **rooms**, "
+                    "**rate-plans**, **api-keys**, **dashboard** KPIs, and related endpoints."
                 ),
             },
             {
@@ -298,6 +299,11 @@ def create_app() -> FastAPI:
         bookings.router,
         prefix="/bookings",
         tags=["bookings"],
+    )
+    application.include_router(
+        folio_categories.router,
+        prefix="/folio-categories",
+        tags=["settings"],
     )
     application.include_router(
         rooms.router,

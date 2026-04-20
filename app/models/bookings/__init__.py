@@ -2,5 +2,6 @@
 
 from app.models.bookings.booking import Booking  # noqa: F401
 from app.models.bookings.booking_line import BookingLine  # noqa: F401
+from app.models.bookings.folio_charge_category import FolioChargeCategory  # noqa: F401
 from app.models.bookings.folio_transaction import FolioTransaction  # noqa: F401
 from app.models.bookings.guest import Guest  # noqa: F401

@@ -20,6 +20,7 @@ from app.core.security import (
 from app.models.auth.refresh_token import RefreshToken
 from app.models.auth.user import User
 from app.models.core.tenant import Tenant
+from app.services.folio_category_service import ensure_builtin_categories
 from app.schemas.auth import (
     AuthChangePasswordRequest,
     AuthInviteRequest,
@@ -94,6 +95,8 @@ async def register_tenant_owner(
     )
     session.add(tenant)
     await session.flush()
+
+    await ensure_builtin_categories(session, tenant.id)
 
     user = User(
         tenant_id=tenant.id,

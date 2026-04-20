@@ -24,6 +24,11 @@ from app.models.rates.availability_ledger import AvailabilityLedger
 from app.models.rates.rate import Rate
 from app.models.rates.rate_plan import RatePlan
 from app.schemas.folio import FolioPostRequest
+from app.schemas.folio_category import (
+    FolioChargeCategoryCreate,
+    FolioChargeCategoryUpdate,
+)
+from app.services.folio_category_service import create_category, update_category
 from app.services.folio_service import (
     COUNTRY_PACK_TAX_PREFIX,
     FolioError,
@@ -312,6 +317,74 @@ async def test_add_folio_entry_payment_with_method(db_engine: object) -> None:
                 created_by=None,
             )
             assert tx.payment_method == "cash"
+
+
+@pytest.mark.asyncio
+async def test_add_folio_entry_custom_category_ok(db_engine: object) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    ctx = await _seed_property_with_two_bookings(db_engine)
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(ctx["tenant_id"])},
+            )
+            await create_category(
+                session,
+                ctx["tenant_id"],
+                FolioChargeCategoryCreate(code="tour_bus", label="Bus tour"),
+            )
+            body = FolioPostRequest(
+                entry_type="charge",
+                amount=Decimal("42.00"),
+                category="tour_bus",
+            )
+            tx = await add_folio_entry(
+                session,
+                ctx["tenant_id"],
+                ctx["booking_unpaid"],
+                body,
+                created_by=None,
+            )
+            assert tx.category == "tour_bus"
+
+
+@pytest.mark.asyncio
+async def test_add_folio_entry_inactive_category_422(db_engine: object) -> None:
+    if not _database_url():
+        pytest.skip("DATABASE_URL required")
+    ctx = await _seed_property_with_two_bookings(db_engine)
+    factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(ctx["tenant_id"])},
+            )
+            await update_category(
+                session,
+                ctx["tenant_id"],
+                "misc",
+                FolioChargeCategoryUpdate(is_active=False),
+            )
+            body = FolioPostRequest(
+                entry_type="charge",
+                amount=Decimal("10.00"),
+                category="misc",
+            )
+            with pytest.raises(FolioError) as ei:
+                await add_folio_entry(
+                    session,
+                    ctx["tenant_id"],
+                    ctx["booking_unpaid"],
+                    body,
+                    created_by=None,
+                )
+            assert ei.value.status_code == 422
 
 
 @pytest.mark.asyncio

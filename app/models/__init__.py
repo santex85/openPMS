@@ -4,6 +4,7 @@ from app.models.auth import ApiKey, RefreshToken, User  # noqa: F401
 from app.models.bookings import (  # noqa: F401
     Booking,
     BookingLine,
+    FolioChargeCategory,
     FolioTransaction,
     Guest,
 )

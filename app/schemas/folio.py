@@ -7,32 +7,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
-FolioCategoryLiteral = Literal[
-    "room_charge",
-    "food_beverage",
-    "spa",
-    "minibar",
-    "tax",
-    "discount",
-    "misc",
-    "service",
-    "payment",
-]
-
-CHARGE_CATEGORIES: frozenset[str] = frozenset(
-    {
-        "room_charge",
-        "food_beverage",
-        "spa",
-        "minibar",
-        "tax",
-        "discount",
-        "misc",
-        "service",
-    },
-)
-
-
 class FolioTransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,7 +51,11 @@ class FolioPostRequest(BaseModel):
         description="Absolute amount; discount category stored as negative charge.",
         examples=["25.00"],
     )
-    category: FolioCategoryLiteral = Field(
+    category: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        pattern=r"^[a-z][a-z0-9_]{0,31}$",
         description="Line category (payment must use category payment).",
     )
     description: str | None = Field(

@@ -12,7 +12,8 @@ from app.models.bookings.guest import Guest
 from app.services.audit_service import record_audit
 from app.models.billing.tax_config import TaxMode
 from app.models.core.country_pack import CountryPack
-from app.schemas.folio import CHARGE_CATEGORIES, FolioPostRequest
+from app.schemas.folio import FolioPostRequest
+from app.services import folio_category_service
 
 COUNTRY_PACK_TAX_PREFIX = "[country-pack-tax]"
 
@@ -199,7 +200,11 @@ async def add_folio_entry(
     await _require_booking(session, tenant_id, booking_id)
 
     if body.entry_type == "charge":
-        if body.category not in CHARGE_CATEGORIES:
+        allowed = await folio_category_service.active_category_codes(
+            session,
+            tenant_id,
+        )
+        if body.category not in allowed:
             raise FolioError("invalid category for charge", status_code=422)
         if body.category == "discount":
             stored_amount = -abs(body.amount)
