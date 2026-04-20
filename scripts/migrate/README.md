@@ -2,18 +2,86 @@
 
 Imports historical data from **Preno** CSV exports into OpenPMS via the REST API.
 
-## Run
+## Architecture
 
-From the OpenPMS repo root (with dependencies installed, `PYTHONPATH` set):
+The migration tool is a **Python package** under `scripts/migrate/` inside the OpenPMS backend repo. It does not run inside the FastAPI process; it is a **standalone CLI** that calls the same HTTP API as other clients.
+
+```mermaid
+flowchart LR
+  subgraph source [Source]
+    CSV[Preno CSV exports]
+  end
+  subgraph migrate [scripts.migrate]
+    Adapter[SourceAdapter]
+    Pipe[MigrationPipeline]
+    Client[OpenPMSClient]
+    State[StateStore SQLite]
+    Audit[MigrationAuditLogger]
+  end
+  subgraph api [OpenPMS API]
+    REST[REST JSON]
+  end
+  CSV --> Adapter
+  Adapter --> Pipe
+  State --> Pipe
+  Audit --> Pipe
+  Pipe --> Client
+  Client --> REST
+```
+
+| Component | Role |
+|-----------|------|
+| **`SourceAdapter`** | Abstract interface: `extract_*` + `validate()`. One implementation per source PMS (today: **`PrenoAdapter`**). |
+| **`MigrationPipeline`** | Runs stages in order: room types → rooms → rate plans → rates → guests → bookings → verify. Coordinates **dry-run**, **resume**, **on-conflict**, batching, dedupe. |
+| **`OpenPMSClient`** | Sync **httpx** client: JWT, retries (429 / 5xx), `POST`/`PATCH`/`GET` helpers. |
+| **`StateStore`** | SQLite file for run id, per-stage status, processed guest/booking ids, name→UUID mappings. |
+| **`MigrationAuditLogger`** | Structured lines to **stdout** and optional **`migration.log`**. |
+| **`ReportGenerator`** | Text/JSON summary after each run. |
+
+### Directory layout
+
+```
+scripts/migrate/
+├── migrate.py              # CLI (Click)
+├── core/
+│   ├── adapter.py          # SourceAdapter ABC
+│   ├── pipeline.py         # MigrationPipeline
+│   ├── client.py           # OpenPMSClient
+│   ├── state.py            # StateStore, compute_run_id
+│   ├── audit_log.py        # migration.log format
+│   └── report.py           # MigrationReport / ReportGenerator
+├── adapters/
+│   └── preno.py            # PrenoAdapter
+├── models/
+│   └── records.py          # GuestRecord, BookingRecord, …
+└── tests/                  # pytest (unit + integration/)
+```
+
+## Prerequisites and installation
+
+- **Python** 3.12+ (same as the OpenPMS project).
+- From the **OpenPMS repository root**, use the project venv and install dependencies (the migration CLI reuses **`requirements.txt`** — it needs at least `httpx`, `pydantic`, `pandas`, `click`, `tenacity`).
 
 ```bash
 cd /path/to/OpenPMS
-PYTHONPATH=. python -m scripts.migrate --help
+python3 -m venv .venv
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
 ```
 
-Example dry-run:
+Runs always need **`PYTHONPATH=.`** (or install the package in editable mode) so that `scripts.migrate` resolves:
 
 ```bash
+export PYTHONPATH=.
+python -m scripts.migrate --help
+```
+
+## Quick start
+
+**Dry-run** (no API token, no writes):
+
+```bash
+cd /path/to/OpenPMS
 PYTHONPATH=. python -m scripts.migrate \
   --source preno \
   --property-id YOUR-PROPERTY-UUID \
@@ -22,7 +90,7 @@ PYTHONPATH=. python -m scripts.migrate \
   --dry-run
 ```
 
-Full import (requires JWT with write scopes):
+**Full import** (JWT with write scopes for guests, bookings, room types, rates, etc.):
 
 ```bash
 PYTHONPATH=. python -m scripts.migrate \
@@ -35,31 +103,9 @@ PYTHONPATH=. python -m scripts.migrate \
   --report ./migration-report.txt
 ```
 
-Bookings are created with `external_booking_id` set to Preno **Booking ID**; duplicates return HTTP **409** and are skipped when `--on-conflict skip` (default).
-
-Placeholder nightly rates are seeded with `--default-night-rate` (default `100.00`) for each `(room_type, rate_plan)` pair over the stay date range so `POST /bookings` pricing succeeds.
-
-## State file and resume (v1.1)
-
-Progress and idempotency for **guests** and **bookings** (plus room type / rate plan name → UUID mappings) are stored in a **SQLite** file.
-
-- **`--state`** — path to the SQLite DB (default: `./migration_state.sqlite3`).
-- **`--resume`** — skip pipeline stages already marked `done`, and skip guests/bookings already recorded in state.
-
-The **run id** is derived from `--property-id` and resolved paths + mtimes of input CSV files, so the same import uses the same state file across restarts.
+**Resume** after interruption (same globs, property, and state path; not compatible with `--dry-run`):
 
 ```bash
-# First run (creates / updates state DB)
-PYTHONPATH=. python -m scripts.migrate \
-  --source preno \
-  --api-url http://localhost:8000 \
-  --api-token "$JWT" \
-  --property-id YOUR-PROPERTY-UUID \
-  --guests './guests_export_*.csv' \
-  --bookings './bookings_report_*.csv' \
-  --state ./migration_state.sqlite3
-
-# After an interruption — same globs, property, and state path:
 PYTHONPATH=. python -m scripts.migrate \
   --resume \
   --state ./migration_state.sqlite3 \
@@ -70,6 +116,54 @@ PYTHONPATH=. python -m scripts.migrate \
   --guests './guests_export_*.csv' \
   --bookings './bookings_report_*.csv'
 ```
+
+Bookings are created with **`external_booking_id`** set to the Preno **Booking ID**; duplicates return HTTP **409** and are handled per **`--on-conflict`**.
+
+Placeholder nightly rates are seeded with **`--default-night-rate`** (default `100.00`) for each `(room_type, rate_plan)` pair over the stay date range so **`POST /bookings`** pricing succeeds.
+
+## CLI reference
+
+All options (see also `python -m scripts.migrate --help`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| **`--source`** | (required) | Source system. Only **`preno`** is supported today. |
+| **`--api-url`** | `http://localhost:8000` | OpenPMS API base URL (no trailing slash required). |
+| **`--api-token`** | empty | JWT Bearer token. **Required** for non–dry-run. |
+| **`--property-id`** | (required) | Target property UUID. |
+| **`--guests`** | none | Glob for Preno **`guests_export_*.csv`**. |
+| **`--bookings`** | none | Glob for Preno **`bookings_report_*.csv`**. |
+| **`--rooms`** | none | Optional path to a single **`rooms_export.csv`** (otherwise rooms are inferred from bookings). |
+| **`--dry-run`** | off | Parse and simulate only; no HTTP writes, no state file. |
+| **`--on-conflict`** | `skip` | `skip` \| `update` \| `fail` for guest/booking duplicates (see below). |
+| **`--include-cancelled`** | off | Include cancelled Preno booking rows in **`extract_bookings`**. |
+| **`--batch-size`** | `50` | Chunk size for guest/booking progress logging (per-record POSTs unchanged). |
+| **`--default-night-rate`** | `100.00` | Decimal string for **`/rates/bulk`** seeding. |
+| **`--report`** | none | Write text report; also writes **`.json`** next to it. |
+| **`--resume`** | off | Continue from **`--state`** SQLite (skip completed stages / processed entities). |
+| **`--state`** | `migration_state.sqlite3` | SQLite state DB path. |
+| **`--log-file`** | `migration.log` | Structured audit log path. |
+| **`--no-log-file`** | off | Audit only to stdout. |
+| **`--log-level`** | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` for audit logger. |
+| **`--precheck-bookings`** | off | **`GET /bookings?external_booking_id=…`** before POST. |
+| **`-v` / `--verbose`** | off | More verbose **root** logging (not only audit). |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| **0** | **`SUCCESS`** (no fatal pipeline error). |
+| **1** | **`FAILED`**. |
+| **2** | **`PARTIAL`** (finished with non-fatal errors in the report). |
+
+## State file and resume (v1.1)
+
+Progress and idempotency for **guests** and **bookings** (plus room type / rate plan name → UUID mappings) are stored in a **SQLite** file.
+
+- **`--state`** — path to the SQLite DB (default: `./migration_state.sqlite3`).
+- **`--resume`** — skip pipeline stages already marked `done`, and skip guests/bookings already recorded in state.
+
+The **run id** is derived from **`--property-id`** and resolved paths + mtimes of input CSV files, so the same import uses the same state file across restarts.
 
 `--resume` cannot be combined with `--dry-run`.
 
@@ -131,7 +225,7 @@ PYTHONPATH=. python -m scripts.migrate \
 
 ## Integration tests (MIG-19 / MIG-20)
 
-Optional pytest tests under [`scripts/migrate/tests/integration/`](tests/integration/) are marked **`integration`** and **skip** unless env vars are set.
+Optional pytest tests under [`tests/integration/`](tests/integration/) are marked **`integration`** and **skip** unless env vars are set.
 
 | Variable | Used for |
 |----------|----------|
@@ -143,7 +237,7 @@ Optional pytest tests under [`scripts/migrate/tests/integration/`](tests/integra
 Examples (from repo root, venv active):
 
 ```bash
-# Unit + integration dry-run only (no API writes)
+# Integration dry-run only (no API writes)
 export MIG_SATVA_DIR=/path/to/satva/csv
 pytest -m integration scripts/migrate/tests/integration/test_dry_run_satva.py
 
@@ -156,3 +250,21 @@ pytest -m integration scripts/migrate/tests/integration/test_full_migration_loca
 ```
 
 Default CI / local run without these variables: **`pytest scripts/migrate/tests/`** — integration tests are skipped; extended **PrenoAdapter** unit tests in `test_preno_adapter_mapping.py` always run.
+
+## Adding a new source adapter
+
+1. **Subclass** [`SourceAdapter`](core/adapter.py) in a new module under [`adapters/`](adapters/) (e.g. `adapters/other_pms.py`).
+2. **Implement** all abstract methods:
+   - `extract_guests` → `list[GuestRecord]`
+   - `extract_room_types` → `list[RoomTypeRecord]`
+   - `extract_rooms` → `list[RoomRecord]`
+   - `extract_rate_plans` → `list[RatePlanRecord]`
+   - `extract_bookings` → `list[BookingRecord]`
+   - `validate` → `ValidationResult` (set `ok=False` and add **`ValidationIssue`** entries for blocking problems).
+3. Use **`GuestRecord`**, **`BookingRecord`**, etc. from [`models/records.py`](models/records.py) so the pipeline stays unchanged.
+4. **Wire the CLI** in [`migrate.py`](migrate.py):
+   - Add the new value to **`click.Choice`** for **`--source`**.
+   - Instantiate your adapter when that source is selected (same pattern as **`PrenoAdapter`**).
+5. **Tests**: add **`tests/test_<adapter>_adapter.py`** with small CSV or in-memory fixtures; keep **`validate()`** strict so bad paths fail fast.
+
+Until a second adapter exists, **`--source preno`** is the only supported value.
