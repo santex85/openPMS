@@ -33,6 +33,28 @@ def get_user_id(request: Request) -> UUID:
 UserIdDep = Annotated[UUID, Depends(get_user_id)]
 
 
+async def get_jwt_only_user_id(request: Request) -> UUID:
+    """
+    JWT subject (sub) required; reject API keys with 403 before missing-subject 401.
+    Used for routes that are strictly interactive-user semantics (e.g. GET /auth/me).
+    """
+    if getattr(request.state, "auth_source", "jwt") != "jwt":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This operation requires a user JWT, not an API key",
+        )
+    user_id = getattr(request.state, "user_id", None)
+    if not isinstance(user_id, UUID):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token must include user subject (sub) for this route",
+        )
+    return user_id
+
+
+JwtOnlyUserIdDep = Annotated[UUID, Depends(get_jwt_only_user_id)]
+
+
 def get_optional_user_id_for_audit(request: Request) -> UUID | None:
     """JWT: required sub for user-attributed writes; API key: no user (audit fields nullable)."""
     if getattr(request.state, "auth_source", "jwt") == "api_key":

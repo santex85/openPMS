@@ -13,8 +13,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.api_scopes import PROPERTIES_READ
 from app.core.security import hash_password
+from app.models.auth.api_key import ApiKey
 from app.models.auth.user import User
+from app.services.api_key_service import hash_api_key
 from app.models.core.room import Room
 from app.models.rates.availability_ledger import AvailabilityLedger
 from app.models.rates.rate import Rate
@@ -68,6 +71,16 @@ def _reset_settings_cache() -> None:
     clear_settings_cache()
     yield
     clear_settings_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter_between_tests() -> None:
+    """Avoid cumulative SlowAPI buckets causing 429 when the full suite runs."""
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 def _database_url() -> str | None:
@@ -158,6 +171,65 @@ def db_engine():
         await engine.dispose()
 
     asyncio.run(_dispose())
+
+
+async def _seed_tenant_with_properties_scope_api_key(*, plaintext: str) -> tuple[str, str]:
+    """Tenant + properties:read API key (used by API key auth tests + /auth/me JWT-only)."""
+    url = _database_url()
+    if not url:
+        pytest.skip("DATABASE_URL required")
+    tenant_id = uuid4()
+    engine = create_async_engine(url)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    digest = hash_api_key(plaintext)
+    async with factory() as session:
+        async with session.begin():
+            await disable_row_security_for_test_seed(session)
+            await session.execute(
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                {"tid": str(tenant_id)},
+            )
+            session.add(
+                Tenant(
+                    id=tenant_id,
+                    name="ApiKeyTenant",
+                    billing_email="ak@example.com",
+                    status="active",
+                ),
+            )
+            await session.flush()
+            session.add(
+                Property(
+                    tenant_id=tenant_id,
+                    name="AK Prop",
+                    timezone="UTC",
+                    currency="USD",
+                    checkin_time=time(14, 0),
+                    checkout_time=time(11, 0),
+                ),
+            )
+            await session.flush()
+            session.add(
+                ApiKey(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    key_hash=digest,
+                    name="test-properties-only",
+                    scopes=[PROPERTIES_READ],
+                    is_active=True,
+                    expires_at=None,
+                ),
+            )
+    await engine.dispose()
+    return str(tenant_id), plaintext
+
+
+@pytest.fixture
+def properties_only_api_key() -> tuple[str, str]:
+    if not _database_url():
+        pytest.skip("Set DATABASE_URL or TEST_DATABASE_URL for integration tests")
+    plain = f"opms_pytest_{uuid4().hex}"
+    return asyncio.run(_seed_tenant_with_properties_scope_api_key(plaintext=plain))
 
 
 @pytest.fixture
@@ -351,14 +423,25 @@ def tenant_isolation_booking_scenario(db_engine):
                 session.add(booking)
                 await session.flush()
                 for i in range(3):
+                    night_d = date(2026, 3, 1) + timedelta(days=i)
                     session.add(
                         BookingLine(
                             tenant_id=tenant_a,
                             booking_id=booking.id,
-                            date=date(2026, 3, 1) + timedelta(days=i),
+                            date=night_d,
                             room_type_id=room_type.id,
                             room_id=None,
                             price_for_date=Decimal("33.34"),
+                        ),
+                    )
+                    session.add(
+                        AvailabilityLedger(
+                            tenant_id=tenant_a,
+                            room_type_id=room_type.id,
+                            date=night_d,
+                            total_rooms=10,
+                            booked_rooms=1,
+                            blocked_rooms=0,
                         ),
                     )
                 await session.flush()

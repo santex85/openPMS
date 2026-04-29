@@ -151,6 +151,36 @@ async def send_booking_email(
     )
 
 
+async def send_invite_email(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    to_email: str,
+    full_name: str,
+    tenant_name: str,
+    temporary_password: str,
+) -> None:
+    ctx: dict[str, Any] = {
+        "full_name": full_name,
+        "email": to_email,
+        "tenant_name": tenant_name,
+        "temporary_password": temporary_password,
+        "property": {},
+    }
+    html = render_email("user_invite.html", ctx)
+    subject = f"You've been invited to {tenant_name} on OpenPMS"
+    await send_booking_email(
+        session,
+        tenant_id,
+        to_email.strip(),
+        subject,
+        html,
+        property_id=None,
+        booking_id=None,
+        template_name="user_invite",
+    )
+
+
 async def send_property_test_email(
     session: AsyncSession,
     tenant_id: UUID,

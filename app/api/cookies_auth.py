@@ -26,4 +26,7 @@ def clear_refresh_cookie(response: Response, settings: Settings) -> None:
     response.delete_cookie(
         key=settings.refresh_cookie_name,
         path="/",
+        secure=settings.refresh_cookie_secure,
+        samesite="lax",
+        httponly=True,
     )

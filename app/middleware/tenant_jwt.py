@@ -30,6 +30,7 @@ def _is_auth_exempt_path(path: str) -> bool:
         "/auth/register",
         "/auth/login",
         "/auth/refresh",
+        "/auth/logout",
         "/webhooks/channex",
         "/stripe/oauth/callback",
     }

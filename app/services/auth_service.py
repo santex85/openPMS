@@ -15,11 +15,13 @@ from app.core.security import (
     hash_password,
     hash_refresh_token,
     new_refresh_token_value,
+    password_needs_rehash,
     verify_password,
 )
 from app.models.auth.refresh_token import RefreshToken
 from app.models.auth.user import User
 from app.models.core.tenant import Tenant
+from app.services.email_service import send_invite_email
 from app.services.folio_category_service import ensure_builtin_categories
 from app.schemas.auth import (
     AuthChangePasswordRequest,
@@ -57,6 +59,30 @@ def _issue_access_token(settings: Settings, user: User) -> str:
     return encode_token(settings, payload)
 
 
+MAX_ACTIVE_REFRESH_TOKENS = 10
+
+
+async def _revoke_excess_active_refresh_tokens(session: AsyncSession, user: User) -> None:
+    """Leave at most MAX_ACTIVE_REFRESH_TOKENS active (non-expired, non-revoked) rows."""
+    now = datetime.now(UTC)
+    stale_ids = (
+        select(RefreshToken.id)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.tenant_id == user.tenant_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
+        .order_by(RefreshToken.created_at.desc())
+        .offset(MAX_ACTIVE_REFRESH_TOKENS)
+    )
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id.in_(stale_ids))
+        .values(revoked_at=now),
+    )
+
+
 async def _persist_refresh_pair(
     session: AsyncSession,
     settings: Settings,
@@ -76,6 +102,7 @@ async def _persist_refresh_pair(
     )
     session.add(row)
     await session.flush()
+    await _revoke_excess_active_refresh_tokens(session, user)
     return raw, row
 
 
@@ -164,6 +191,9 @@ async def login(
         raise AuthServiceError("invalid credentials", status_code=401)
     if not verify_password(body.password, user.password_hash):
         raise AuthServiceError("invalid credentials", status_code=401)
+    if password_needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
+        await session.flush()
 
     access = _issue_access_token(settings, user)
     refresh_raw, _ = await _persist_refresh_pair(session, settings, user)
@@ -210,6 +240,20 @@ async def refresh_session(
     refresh_raw, _ = await _persist_refresh_pair(session, settings, user)
 
     return TokenPairResponse(access_token=access, refresh_token=refresh_raw)
+
+
+async def logout(session: AsyncSession, tenant_id: UUID, raw_token: str) -> None:
+    digest = hash_refresh_token(raw_token.strip())
+    now = datetime.now(UTC)
+    await session.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.tenant_id == tenant_id,
+            RefreshToken.token_hash == digest,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=now),
+    )
 
 
 async def get_user(
@@ -404,6 +448,18 @@ async def invite_user(
     )
     session.add(user)
     await session.flush()
+
+    tenant_row = await session.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    tenant_name = tenant_row.name.strip() if tenant_row else "OpenPMS"
+
+    await send_invite_email(
+        session,
+        tenant_id,
+        to_email=email_norm,
+        full_name=body.full_name.strip(),
+        tenant_name=tenant_name,
+        temporary_password=temp_password,
+    )
 
     return AuthInviteResponse(
         user=UserRead.model_validate(user),

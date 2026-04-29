@@ -7,7 +7,7 @@ import secrets
 from typing import Final
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
 _hasher: Final[PasswordHasher] = PasswordHasher()
 
@@ -20,8 +20,12 @@ def verify_password(plain: str, password_hash: str) -> bool:
     try:
         _hasher.verify(password_hash, plain)
         return True
-    except VerifyMismatchError:
+    except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    return _hasher.check_needs_rehash(password_hash)
 
 
 def new_refresh_token_value() -> str:

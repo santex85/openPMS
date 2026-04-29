@@ -3,10 +3,12 @@
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from starlette.responses import JSONResponse
 
 from app.api.cookies_auth import attach_refresh_cookie, clear_refresh_cookie
 from app.api.deps import (
+    JwtOnlyUserIdDep,
     SessionDep,
     TenantIdDep,
     UserIdDep,
@@ -22,6 +24,7 @@ from app.schemas.auth import (
     AuthChangePasswordRequest,
     AuthInviteRequest,
     AuthInviteResponse,
+    AuthLogoutRequest,
     AuthLoginPublicResponse,
     AuthLoginRequest,
     AuthRegisterPublicResponse,
@@ -38,6 +41,7 @@ from app.services.auth_service import (
     invite_user,
     list_users,
     login as login_user,
+    logout as revoke_refresh_session,
     patch_user,
     refresh_session,
     register_tenant_owner,
@@ -147,7 +151,7 @@ async def post_refresh(
     request: Request,
     response: Response,
     body: AuthRefreshRequest,
-) -> AccessTokenResponse:
+) -> AccessTokenResponse | JSONResponse:
     settings = get_settings()
     raw = body.refresh_token
     if raw is None or not str(raw).strip():
@@ -165,15 +169,46 @@ async def post_refresh(
         async with tenant_transaction_session(factory, body.tenant_id) as session:
             full = await refresh_session(session, settings, body_filled)
     except AuthServiceError as exc:
-        clear_refresh_cookie(response, settings)
-        raise HTTPException(
+        err_carrier = Response()
+        clear_refresh_cookie(err_carrier, settings)
+        return JSONResponse(
             status_code=exc.status_code,
-            detail=exc.detail,
-        ) from exc
+            content={"detail": exc.detail},
+            headers=err_carrier.headers,
+        )
     attach_refresh_cookie(response, settings, full.refresh_token)
     return AccessTokenResponse(
         access_token=full.access_token, token_type=full.token_type
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
+async def post_logout(
+    request: Request,
+    response: Response,
+    body: Annotated[AuthLogoutRequest | None, Body()] = None,
+) -> None:
+    settings = get_settings()
+    parsed = body or AuthLogoutRequest()
+
+    resolved = (
+        parsed.refresh_token.strip()
+        if parsed.refresh_token is not None and str(parsed.refresh_token).strip()
+        else ""
+    )
+    if not resolved:
+        ck = request.cookies.get(settings.refresh_cookie_name)
+        resolved = ck.strip() if ck and str(ck).strip() else ""
+
+    tenant_id_val = parsed.tenant_id
+
+    if tenant_id_val is not None and resolved:
+        factory = request.app.state.async_session_factory
+        async with tenant_transaction_session(factory, tenant_id_val) as session:
+            await revoke_refresh_session(session, tenant_id_val, resolved)
+
+    clear_refresh_cookie(response, settings)
 
 
 @router.get("/users", response_model=list[UserRead])
@@ -266,7 +301,7 @@ async def patch_user_route(
 async def get_me(
     session: SessionDep,
     tenant_id: TenantIdDep,
-    user_id: UserIdDep,
+    user_id: JwtOnlyUserIdDep,
 ) -> UserRead:
     user = await get_user(session, tenant_id, user_id)
     if user is None:

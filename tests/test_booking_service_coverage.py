@@ -52,7 +52,17 @@ async def _seed_create_booking_world(
     tenant_id = uuid4()
     url = _database_url()
     assert url
-    stay = [date(2026, 8, 1), date(2026, 8, 2)]
+    stay = sorted(
+        {
+            date(2026, 8, 1),
+            date(2026, 8, 2),
+            date(2026, 9, 1),
+            date(2026, 9, 2),
+            date(2026, 11, 1),
+            date(2026, 11, 2),
+            date(2026, 12, 1),
+        },
+    )
     engine = create_async_engine(url)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:

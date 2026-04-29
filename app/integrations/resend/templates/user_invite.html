@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">Hello{% if full_name %}, {{ full_name }}{% endif %},</p>
+<p style="margin:0 0 12px 0;">You have been invited to join <strong>{{ tenant_name }}</strong> on OpenPMS.</p>
+<p style="margin:0 0 8px 0;"><strong>Email:</strong> {{ email }}</p>
+<p style="margin:0 0 8px 0;"><strong>Temporary password:</strong> {{ temporary_password }}</p>
+<p style="margin:0 0 0 0;color:#6b7280;font-size:13px;">Please log in and change your password immediately.</p>
+{% endblock %}

@@ -59,6 +59,30 @@ class AuthLoginRequest(BaseModel):
         return v
 
 
+class AuthLogoutRequest(BaseModel):
+    tenant_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Tenant scope for revoking refresh (RLS). Required with token to update DB rows."
+        ),
+    )
+    refresh_token: str | None = Field(
+        default=None,
+        max_length=4096,
+        description=(
+            "Send in body optionally; alternatively use HttpOnly cookie from auth endpoints."
+        ),
+    )
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("tenant_id", mode="before")
+    @classmethod
+    def _empty_string_tenant_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
+
+
 class AuthRefreshRequest(BaseModel):
     tenant_id: UUID
     refresh_token: str | None = Field(
@@ -138,5 +162,9 @@ class AuthInviteResponse(BaseModel):
     user: UserRead
     temporary_password: str = Field(
         ...,
-        description="Shown once; store securely on the client if needed.",
+        description=(
+            "Deprecated: the invitee receives the temporary password by email. "
+            "Kept for backward compatibility; do not persist in client logs."
+        ),
+        deprecated=True,
     )
