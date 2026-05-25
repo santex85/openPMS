@@ -26,6 +26,7 @@ from app.schemas.bookings import BookingCreateRequest, BookingPatchRequest, Gues
 from app.services.booking_service import (
     AssignBookingRoomError,
     DuplicateExternalBookingError,
+    GuestConflictError,
     InvalidBookingContextError,
     _require_rate_plan_on_property,
     _require_room_type_on_property,
@@ -427,7 +428,7 @@ async def test_create_booking_force_new_guest_conflict(
                 text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tid)},
             )
-            with pytest.raises(InvalidBookingContextError) as ei:
+            with pytest.raises(GuestConflictError) as ei:
                 await create_booking(session, tid, body)
             assert "email" in ei.value.args[0].lower()
 

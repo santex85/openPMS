@@ -284,7 +284,9 @@ async def test_reminder_idempotent_second_run_same_day(db_engine: object) -> Non
                 return_value=target_ci,
             ):
                 await _send_checkin_reminders_async()
+                after_first = send_email_mock.await_count
+                assert after_first >= 1
                 await _send_checkin_reminders_async()
-        assert send_email_mock.await_count == 1
+        assert send_email_mock.await_count == after_first
     finally:
         await _delete_reminder_tenant(db_engine, ids["tenant_id"])

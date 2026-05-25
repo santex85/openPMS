@@ -55,6 +55,7 @@ from app.services.booking_service import (
     AssignBookingRoomError,
     DeleteBookingError,
     DuplicateExternalBookingError,
+    GuestConflictError,
     InvalidBookingContextError,
     PatchBookingError,
     create_booking,
@@ -716,6 +717,11 @@ async def post_booking(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"missing_dates": [d.isoformat() for d in exc.missing_dates]},
+        ) from exc
+    except GuestConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.detail,
         ) from exc
     except InvalidBookingContextError as exc:
         raise HTTPException(

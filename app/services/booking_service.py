@@ -114,6 +114,18 @@ class DuplicateExternalBookingError(Exception):
         self.status_code = 409
 
 
+class GuestConflictError(Exception):
+    """Guest email already taken for this tenant (force_new_guest=True rejected)."""
+
+    def __init__(
+        self,
+        detail: str = "guest with this email already exists for this tenant",
+    ) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = 409
+
+
 class AssignBookingRoomError(Exception):
     """Cannot assign room to booking (wrong tenant, type, or property)."""
 
@@ -167,7 +179,7 @@ async def _get_or_create_guest_for_booking(
         except IntegrityError:
             if object_session(guest) is session:
                 session.expunge(guest)
-            raise InvalidBookingContextError(
+            raise GuestConflictError(
                 "guest with this email already exists for this tenant",
             ) from None
         return guest, False
