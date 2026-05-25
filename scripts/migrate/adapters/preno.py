@@ -121,6 +121,17 @@ _PRENO_STATUS_TO_INTERNAL: dict[str, str] = {
     "no-show": "no_show",
 }
 
+# Map Preno export labels to canonical OpenPMS room type names (property-specific).
+_ROOM_TYPE_ALIASES: dict[str, str] = {
+    "garden bungalow": "Garden",
+    "beachfront bungalow": "Bungalow",
+}
+
+
+def _normalize_room_type_name(name: str) -> str:
+    key = name.strip().lower()
+    return _ROOM_TYPE_ALIASES.get(key, name.strip())
+
 
 def _norm_key(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip().lower())
@@ -347,7 +358,7 @@ class PrenoAdapter(SourceAdapter):
             if d_out <= d_in:
                 continue
 
-            rt_name = str(row.get(c_rt, "")).split(",")[0].strip()
+            rt_name = _normalize_room_type_name(str(row.get(c_rt, "")).split(",")[0])
             rp_name = str(row.get(c_rp, "")).split(",")[0].strip()
             if not rt_name or not rp_name:
                 continue
@@ -401,7 +412,7 @@ class PrenoAdapter(SourceAdapter):
 
     def extract_room_types(self) -> list[RoomTypeRecord]:
         bookings = self.extract_bookings()
-        names = sorted({b.room_type_name for b in bookings})
+        names = sorted({_normalize_room_type_name(b.room_type_name) for b in bookings})
         return [RoomTypeRecord(name=n) for n in names]
 
     def extract_rate_plans(self) -> list[RatePlanRecord]:

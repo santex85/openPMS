@@ -28,7 +28,7 @@ from app.api.deps import (
 )
 from app.api.routes.inventory import InventoryReadRolesDep, rooms_for_stay_query_params
 from app.core.api_scopes import BOOKINGS_READ, BOOKINGS_WRITE
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, migration_rate_limit_exempt
 from app.schemas.bookings import (
     BookingCreateRequest,
     BookingCreateResponse,
@@ -133,7 +133,7 @@ BookingsWriteRolesDep = Annotated[
 
 
 @router.get("", response_model=BookingTapePage)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", exempt_when=migration_rate_limit_exempt)
 async def get_bookings(
     request: Request,
     _: BookingsReadRolesDep,
@@ -563,7 +563,7 @@ async def delete_booking_by_id(
         204: {"description": "Updated; no folio warning."},
     },
 )
-@limiter.limit("120/minute")
+@limiter.limit("120/minute", exempt_when=migration_rate_limit_exempt)
 async def patch_booking_by_id(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -687,7 +687,7 @@ async def patch_booking_by_id(
     status_code=status.HTTP_201_CREATED,
 )
 # High enough for concurrent overbooking load test (100+); still caps sustained abuse per key.
-@limiter.limit("200/minute")
+@limiter.limit("200/minute", exempt_when=migration_rate_limit_exempt)
 async def post_booking(
     request: Request,
     background_tasks: BackgroundTasks,

@@ -32,7 +32,7 @@ flowchart LR
 | Component | Role |
 |-----------|------|
 | **`SourceAdapter`** | Abstract interface: `extract_*` + `validate()`. One implementation per source PMS (today: **`PrenoAdapter`**). |
-| **`MigrationPipeline`** | Runs stages in order: room types → rooms → rate plans → rates → guests → bookings → verify. Coordinates **dry-run**, **resume**, **on-conflict**, batching, dedupe. |
+| **`MigrationPipeline`** | Runs stages in order: room types → rooms → rate plans → rates → **availability** → guests → bookings → verify. Coordinates **dry-run**, **resume**, **on-conflict**, batching, dedupe. |
 | **`OpenPMSClient`** | Sync **httpx** client: JWT, retries (429 / 5xx), `POST`/`PATCH`/`GET` helpers. |
 | **`StateStore`** | SQLite file for run id, per-stage status, processed guest/booking ids, name→UUID mappings. |
 | **`MigrationAuditLogger`** | Structured lines to **stdout** and optional **`migration.log`**. |
@@ -188,6 +188,19 @@ The migration HTTP client (`OpenPMSClient`) retries transient failures with **te
 - **HTTP 429**: respects **`Retry-After`** when present (seconds or HTTP-date); otherwise exponential backoff **1 → 2 → 4 → 8 → 16** seconds.
 - **HTTP 5xx** and **transport errors**: same exponential backoff.
 - Retries are logged on the logger **`openpms.migration.client`** at **WARNING** (`retry status=… wait=…`).
+
+### Faster bulk import (skip API rate limits)
+
+When **`MIGRATION_RATE_LIMIT_KEY`** is set in the API environment **and** exported in the shell running the CLI, requests include **`X-OpenPMS-Migration-Key`** and **per-route SlowAPI limits are bypassed** for migration endpoints (`POST /guests`, `PUT /rates/bulk`, `PUT /inventory/availability/seed`, etc.). Leave the key empty in production unless you are running a controlled import.
+
+```bash
+export MIGRATION_RATE_LIMIT_KEY=your-local-dev-secret
+PYTHONPATH=. python -m scripts.migrate ...  # same as Quick start
+```
+
+### Rates and availability seeding
+
+Before guests/bookings, the pipeline seeds nightly **rates** (`PUT /rates/bulk`) and **availability ledger** rows (`PUT /inventory/availability/seed`) for every `(room_type, rate_plan)` pair and room type referenced in the bookings CSV, from the earliest check-in through the latest checkout night. Date ranges are sent in **90-night chunks** (bulk upserts larger than ~100 rows were unreliable in local testing).
 
 ## Deduplication (v1.2)
 

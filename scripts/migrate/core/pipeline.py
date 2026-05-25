@@ -93,7 +93,7 @@ def _max_parallel_rooms_by_type(bookings: list[BookingRecord]) -> dict[str, int]
     return out
 
 
-def _iter_date_chunks(start: date, end: date, max_days: int = 366):
+def _iter_date_chunks(start: date, end: date, max_days: int = 90):
     cur = start
     while cur <= end:
         chunk_end = min(cur + timedelta(days=max_days - 1), end)
@@ -264,6 +264,7 @@ class MigrationPipeline:
             ("rooms", lambda: self._stage_rooms(client, bookings, rooms_from_source)),
             ("rate_plans", lambda: self._stage_rate_plans(client, rate_plans)),
             ("rates", lambda: self._stage_rates(client, bookings)),
+            ("availability", lambda: self._stage_availability(client, bookings)),
             ("guests", lambda: self._stage_guests(client, guests)),
             ("bookings", lambda: self._stage_bookings(client, bookings)),
             ("verify", lambda: self._stage_verify(client, bookings)),
@@ -338,6 +339,7 @@ class MigrationPipeline:
             created=len(rate_plans),
         )
         self._report.stages["rates"] = StageStats(total=1, created=1)
+        self._report.stages["availability"] = StageStats(total=1, created=1)
         g2, g_dup = _dedupe_guests_by_email(guests, self._audit)
         self._report.stages["guests"] = StageStats(
             total=len(guests),
@@ -666,7 +668,7 @@ class MigrationPipeline:
         price = str(self._default_night_rate)
         rows_upserted = 0
         for rt_id, rp_id in pairs:
-            for c_start, c_end in _iter_date_chunks(d_min, d_max, max_days=366):
+            for c_start, c_end in _iter_date_chunks(d_min, d_max, max_days=90):
                 seg = {
                     "room_type_id": str(rt_id),
                     "rate_plan_id": str(rp_id),
@@ -702,6 +704,65 @@ class MigrationPipeline:
                         level=logging.ERROR,
                     )
         stats.total = len(pairs)
+        stats.created = rows_upserted
+
+    def _stage_availability(
+        self,
+        client: OpenPMSClient,
+        bookings: list[BookingRecord],
+    ) -> None:
+        stats = StageStats()
+        self._report.stages["availability"] = stats
+        if not bookings:
+            return
+        d_min = min(b.check_in for b in bookings)
+        d_max = max(b.check_out - timedelta(days=1) for b in bookings)
+        if d_max < d_min:
+            d_max = d_min
+
+        rt_map = self._resolve_room_type_ids(client)
+        rt_ids: set[UUID] = set()
+        for b in bookings:
+            rk = b.room_type_name.strip().lower()
+            if rk in rt_map:
+                rt_ids.add(rt_map[rk])
+
+        rows_upserted = 0
+        for rt_id in rt_ids:
+            for c_start, c_end in _iter_date_chunks(d_min, d_max, max_days=90):
+                seg = {
+                    "room_type_id": str(rt_id),
+                    "start_date": c_start.isoformat(),
+                    "end_date": c_end.isoformat(),
+                }
+                ref = f"{rt_id}/{c_start}->{c_end}"
+                try:
+                    res = client.bulk_seed_availability_ledger([seg])
+                    n = int(res.get("rows_upserted", 0))
+                    rows_upserted += n
+                    self._audit.event(
+                        "availability",
+                        "availability_seed",
+                        ref,
+                        "created",
+                        f"rows_upserted={n}",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    stats.errors += 1
+                    self._rg.add_error(
+                        entity="availability",
+                        ref=str(rt_id),
+                        message=str(exc),
+                    )
+                    self._audit.event(
+                        "availability",
+                        "availability_seed",
+                        ref,
+                        "error",
+                        str(exc),
+                        level=logging.ERROR,
+                    )
+        stats.total = len(rt_ids)
         stats.created = rows_upserted
 
     def _guest_processed_skip(self, g: GuestRecord) -> bool:

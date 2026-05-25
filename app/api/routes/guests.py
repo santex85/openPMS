@@ -12,7 +12,7 @@ from app.api.deps import (
     require_roles,
     require_scopes,
 )
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, migration_rate_limit_exempt
 from app.core.api_scopes import GUESTS_READ, GUESTS_WRITE
 from app.schemas.guest import (
     GuestCreate,
@@ -54,7 +54,9 @@ GuestWriteRolesDep = Annotated[
 
 
 @router.get("", response_model=GuestListPage)
+@limiter.limit("6000/minute", exempt_when=migration_rate_limit_exempt)
 async def get_guests(
+    request: Request,
     _: GuestReadRolesDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
@@ -64,6 +66,7 @@ async def get_guests(
     limit: int = Query(100, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Rows to skip"),
 ) -> GuestListPage:
+    _ = request
     rows, total = await list_guests(session, tenant_id, q=q, limit=limit, offset=offset)
     return GuestListPage(
         items=[GuestRead.model_validate(r) for r in rows],
@@ -95,7 +98,7 @@ async def get_guest_detail(
 
 
 @router.post("", response_model=GuestRead, status_code=status.HTTP_201_CREATED)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", exempt_when=migration_rate_limit_exempt)
 async def post_guest(
     request: Request,
     _: GuestWriteRolesDep,
@@ -119,7 +122,7 @@ async def post_guest(
 
 
 @router.patch("/{guest_id}", response_model=GuestRead)
-@limiter.limit("120/minute")
+@limiter.limit("120/minute", exempt_when=migration_rate_limit_exempt)
 async def patch_guest_by_id(
     request: Request,
     guest_id: UUID,

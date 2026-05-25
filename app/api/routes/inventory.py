@@ -26,16 +26,25 @@ from app.api.deps import (
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
 from app.core.api_scopes import INVENTORY_READ, INVENTORY_WRITE
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, migration_rate_limit_exempt
 from app.schemas.availability_override import (
     AvailabilityOverridePutRequest,
     AvailabilityOverridePutResponse,
 )
-from app.schemas.inventory import AvailabilityGridResponse, AvailabilityQueryParams
+from app.schemas.inventory import (
+    AvailabilityGridResponse,
+    AvailabilityQueryParams,
+    BulkAvailabilityLedgerSeedRequest,
+    BulkAvailabilityLedgerSeedResponse,
+)
 from app.schemas.rooms import AssignableRoomsQueryParams, RoomRead
 from app.services import availability_service
 from app.services.room_assignable_service import list_assignable_rooms_for_stay
 from app.services.availability_lock import LedgerNotSeededError
+from app.services.availability_ledger_seed import (
+    AvailabilityLedgerSeedError,
+    bulk_seed_availability_ledger,
+)
 from app.services.availability_override_service import (
     AvailabilityOverrideError,
     apply_blocked_rooms_override,
@@ -144,6 +153,34 @@ async def get_availability_grid(
             detail="Property not found",
         )
     return grid
+
+
+@router.put(
+    "/availability/seed",
+    response_model=BulkAvailabilityLedgerSeedResponse,
+    summary="Seed availability ledger rows for date ranges (migration / bulk)",
+)
+@limiter.limit("120/minute", exempt_when=migration_rate_limit_exempt)
+async def put_availability_ledger_seed(
+    request: Request,
+    _: InventoryWriteRolesDep,
+    body: BulkAvailabilityLedgerSeedRequest,
+    session: SessionDep,
+    tenant_id: TenantIdDep,
+) -> BulkAvailabilityLedgerSeedResponse:
+    _ = request
+    try:
+        n = await bulk_seed_availability_ledger(session, tenant_id, body)
+    except AvailabilityLedgerSeedError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await record_audit(
+        session,
+        tenant_id=tenant_id,
+        action="inventory.availability_ledger.seed",
+        entity_type="availability_ledger",
+        new_values={"rows_upserted": n},
+    )
+    return BulkAvailabilityLedgerSeedResponse(rows_upserted=n)
 
 
 @router.get(

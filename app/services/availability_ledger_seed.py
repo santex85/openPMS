@@ -1,7 +1,7 @@
 """Seed availability_ledger with daily rows (empty inventory) for a room type."""
 
 from datetime import date, datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -9,6 +9,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core.room_type import RoomType
 from app.models.rates.availability_ledger import AvailabilityLedger
+from app.schemas.inventory import BulkAvailabilityLedgerSeedRequest
+
+
+class AvailabilityLedgerSeedError(Exception):
+    def __init__(self, detail: str, *, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+
+
+def _iter_inclusive_dates(start: date, end: date) -> list[date]:
+    out: list[date] = []
+    d = start
+    while d <= end:
+        out.append(d)
+        d += timedelta(days=1)
+    return out
 
 
 async def seed_empty_availability_ledger_year_forward(
@@ -109,3 +126,58 @@ async def extend_availability_ledger_days(
             inserted_total += len(res.fetchall())
 
     return inserted_total
+
+
+async def bulk_seed_availability_ledger(
+    session: AsyncSession,
+    tenant_id: UUID,
+    body: BulkAvailabilityLedgerSeedRequest,
+) -> int:
+    """
+    Insert or refresh ``total_rooms`` on availability_ledger rows for each segment night.
+
+    Uses the live physical room count per room type. Existing ``booked_rooms`` /
+    ``blocked_rooms`` are preserved; ``total_rooms`` is updated on conflict.
+    """
+    from app.services.room_type_service import count_rooms_for_room_type
+
+    by_key: dict[tuple[UUID, date], dict] = {}
+    for seg in body.segments:
+        rt = await session.scalar(
+            select(RoomType).where(
+                RoomType.tenant_id == tenant_id,
+                RoomType.id == seg.room_type_id,
+            ),
+        )
+        if rt is None:
+            raise AvailabilityLedgerSeedError(
+                "room_type not found",
+                status_code=404,
+            )
+        total_rooms = await count_rooms_for_room_type(
+            session,
+            tenant_id,
+            seg.room_type_id,
+        )
+        for d in _iter_inclusive_dates(seg.start_date, seg.end_date):
+            by_key[(seg.room_type_id, d)] = {
+                "id": uuid4(),
+                "tenant_id": tenant_id,
+                "room_type_id": seg.room_type_id,
+                "date": d,
+                "total_rooms": total_rooms,
+                "booked_rooms": 0,
+                "blocked_rooms": 0,
+            }
+
+    rows = list(by_key.values())
+    if not rows:
+        return 0
+
+    stmt = pg_insert(AvailabilityLedger).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_availability_ledger_tenant_room_type_date",
+        set_={"total_rooms": stmt.excluded.total_rooms},
+    )
+    await session.execute(stmt)
+    return len(rows)

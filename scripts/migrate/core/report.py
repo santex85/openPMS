@@ -68,6 +68,7 @@ class ReportGenerator:
             "rooms",
             "rate_plans",
             "rates",
+            "availability",
             "guests",
             "bookings",
             "verify",

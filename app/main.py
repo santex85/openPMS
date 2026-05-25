@@ -50,6 +50,7 @@ from app.core.config import ensure_jwt_secret_not_weak, get_settings
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
 from app.db.session import create_async_engine_and_sessionmaker
+from app.middleware.rate_limit_request import RateLimitRequestContextMiddleware
 from app.middleware.request_id import RequestIdASGIMiddleware
 from app.middleware.tenant_jwt import TenantJwtASGIMiddleware
 from app.services.webhook_delivery_engine import webhook_delivery_worker_loop
@@ -245,9 +246,10 @@ def create_app() -> FastAPI:
             },
         )
 
-    # Order (last add = outermost): RequestId → CORS → TenantJwt → SlowAPI → routes.
+    # Order (last add = outermost): RequestId → CORS → TenantJwt → RateLimitCtx → SlowAPI → routes.
     # TenantJwt must run before SlowAPI so rate_limit_key can use request.state.tenant_id.
     application.add_middleware(SlowAPIMiddleware)
+    application.add_middleware(RateLimitRequestContextMiddleware)
     application.add_middleware(TenantJwtASGIMiddleware)
     application.add_middleware(
         CORSMiddleware,
@@ -257,6 +259,7 @@ def create_app() -> FastAPI:
             "Authorization",
             "Content-Type",
             "X-API-Key",
+            "X-OpenPMS-Migration-Key",
             "Cookie",
             # Browsers list these on preflight when a script sets cache-busting headers on XHR.
             "Cache-Control",

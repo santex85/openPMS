@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -17,6 +18,8 @@ from tenacity import (
     retry_if_exception,
     stop_after_attempt,
 )
+
+MIGRATION_RATE_LIMIT_HEADER = "X-OpenPMS-Migration-Key"
 
 _log = logging.getLogger("openpms.migration.client")
 
@@ -118,12 +121,16 @@ class OpenPMSClient:
         timeout: float = 60.0,
     ) -> None:
         self._base = base_url.rstrip("/")
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {token.strip()}",
+            "Content-Type": "application/json",
+        }
+        migration_key = (os.environ.get("MIGRATION_RATE_LIMIT_KEY") or "").strip()
+        if migration_key:
+            headers[MIGRATION_RATE_LIMIT_HEADER] = migration_key
         self._client = httpx.Client(
             base_url=self._base,
-            headers={
-                "Authorization": f"Bearer {token.strip()}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             timeout=timeout,
         )
 
@@ -246,6 +253,17 @@ class OpenPMSClient:
         segments: list[dict[str, Any]],
     ) -> dict[str, Any]:
         r = self._request("PUT", "/rates/bulk", json={"segments": segments})
+        return r.json()
+
+    def bulk_seed_availability_ledger(
+        self,
+        segments: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        r = self._request(
+            "PUT",
+            "/inventory/availability/seed",
+            json={"segments": segments},
+        )
         return r.json()
 
     # --- Guests ---

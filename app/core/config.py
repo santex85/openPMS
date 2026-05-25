@@ -150,6 +150,13 @@ class Settings(BaseSettings):
             "Defaults to jwt_secret (HS256) or webhook_secret_fernet_key material when unset."
         ),
     )
+    migration_rate_limit_key: str = Field(
+        default="",
+        description=(
+            "When set, requests bearing header X-OpenPMS-Migration-Key with this value "
+            "skip per-route SlowAPI limits (migration CLI bulk import only)."
+        ),
+    )
     resend_api_key: str = Field(
         default="",
         description="Resend API key (re_...). Empty disables outbound email until configured.",

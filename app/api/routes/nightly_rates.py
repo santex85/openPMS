@@ -17,7 +17,7 @@ from app.api.deps import (
 )
 from app.models.core.room_type import RoomType
 from app.core.api_scopes import RATES_READ, RATES_WRITE
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, migration_rate_limit_exempt
 from app.schemas.nightly_rates import (
     BulkRatesPutRequest,
     BulkRatesPutResponse,
@@ -126,7 +126,7 @@ async def get_rates_batch(
 
 
 @router.put("/bulk", response_model=BulkRatesPutResponse)
-@limiter.limit("120/minute")
+@limiter.limit("120/minute", exempt_when=migration_rate_limit_exempt)
 async def put_rates_bulk(
     request: Request,
     background_tasks: BackgroundTasks,

@@ -26,6 +26,44 @@ class AvailabilityGridResponse(BaseModel):
     cells: list[AvailabilityCell]
 
 
+class AvailabilityLedgerSeedSegment(BaseModel):
+    room_type_id: UUID
+    start_date: date
+    end_date: date
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "AvailabilityLedgerSeedSegment":
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        span = (self.end_date - self.start_date).days + 1
+        if span > 366:
+            raise ValueError("each segment may cover at most 366 nights")
+        return self
+
+    model_config = {"extra": "forbid"}
+
+
+class BulkAvailabilityLedgerSeedRequest(BaseModel):
+    segments: list[AvailabilityLedgerSeedSegment] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_total_span(self) -> "BulkAvailabilityLedgerSeedRequest":
+        total = 0
+        for seg in self.segments:
+            total += (seg.end_date - seg.start_date).days + 1
+        if total > 366:
+            raise ValueError(
+                "total number of ledger rows in one request cannot exceed 366",
+            )
+        return self
+
+    model_config = {"extra": "forbid"}
+
+
+class BulkAvailabilityLedgerSeedResponse(BaseModel):
+    rows_upserted: int
+
+
 class AvailabilityQueryParams(BaseModel):
     """Validated query string for GET /inventory/availability."""
 
