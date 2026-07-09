@@ -26,7 +26,11 @@ from tests.booking_seed import database_url
 
 
 def _db_url() -> str:
-    u = database_url() or os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    u = (
+        database_url()
+        or os.environ.get("DATABASE_URL")
+        or os.environ.get("TEST_DATABASE_URL")
+    )
     assert u
     return u
 
@@ -177,18 +181,19 @@ def test_delete_booking_no_show_releases_no_double_inventory(
 async def _count_model(model, booking_id: UUID) -> int:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             n = (
-                (
-                    await session.execute(
-                        select(func.count()).select_from(model).where(
-                            getattr(model, "booking_id") == booking_id,
-                        ),
-                    )
-                ).scalar_one()
-                or 0
-            )
+                await session.execute(
+                    select(func.count())
+                    .select_from(model)
+                    .where(
+                        getattr(model, "booking_id") == booking_id,
+                    ),
+                )
+            ).scalar_one() or 0
             return int(n)
     finally:
         await engine.dispose()
@@ -197,25 +202,24 @@ async def _count_model(model, booking_id: UUID) -> int:
 async def _count_folio(tenant_id: UUID, booking_id: UUID) -> int:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
-                ),
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
             )
             n = (
-                (
-                    await session.execute(
-                        select(func.count()).select_from(FolioTransaction).where(
-                            FolioTransaction.tenant_id == tenant_id,
-                            FolioTransaction.booking_id == booking_id,
-                        ),
-                    )
-                ).scalar_one()
-                or 0
-            )
+                await session.execute(
+                    select(func.count())
+                    .select_from(FolioTransaction)
+                    .where(
+                        FolioTransaction.tenant_id == tenant_id,
+                        FolioTransaction.booking_id == booking_id,
+                    ),
+                )
+            ).scalar_one() or 0
             return int(n)
     finally:
         await engine.dispose()
@@ -224,7 +228,9 @@ async def _count_folio(tenant_id: UUID, booking_id: UUID) -> int:
 async def _seed_stripe_charge(tenant_id: UUID, booking_id: UUID) -> None:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await session.execute(
@@ -269,7 +275,9 @@ async def _seed_stripe_charge(tenant_id: UUID, booking_id: UUID) -> None:
 async def _seed_stripe_pm(tenant_id: UUID, booking_id: UUID) -> UUID:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         pm_id = uuid4()
         async with factory() as session:
             async with session.begin():
@@ -299,7 +307,9 @@ async def _seed_stripe_pm(tenant_id: UUID, booking_id: UUID) -> UUID:
 async def _pm_booking_id(pm_id: UUID) -> UUID | None:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             pm = await session.get(StripePaymentMethod, pm_id)
             return pm.booking_id if pm else None
@@ -310,7 +320,9 @@ async def _pm_booking_id(pm_id: UUID) -> UUID | None:
 async def _seed_email_log(tenant_id: UUID, booking_id: UUID) -> UUID:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         lid = uuid4()
         async with factory() as session:
             async with session.begin():
@@ -342,7 +354,9 @@ async def _seed_email_log(tenant_id: UUID, booking_id: UUID) -> UUID:
 async def _log_booking(log_id: UUID) -> UUID | None:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             row = await session.get(EmailLog, log_id)
             return row.booking_id if row else None
@@ -356,7 +370,9 @@ async def _seed_channex_revision(tenant_id: UUID, booking_id: UUID) -> UUID:
     rev_id = uuid4()
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await session.execute(
@@ -406,7 +422,9 @@ async def _seed_channex_revision(tenant_id: UUID, booking_id: UUID) -> UUID:
 async def _revision_openpms(revision_id: UUID) -> UUID | None:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             row = await session.get(ChannexBookingRevision, revision_id)
             return row.openpms_booking_id if row else None
@@ -420,12 +438,12 @@ async def _booking_room_type_dates_outer(
 ) -> tuple[UUID | None, list]:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
-                ),
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
             )
             return await _booking_room_type_dates(session, tenant_id, booking_id)
@@ -440,12 +458,12 @@ async def _sum_ledgers(
 ) -> int:
     engine = create_async_engine(_db_url())
     try:
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             await session.execute(
-                text(
-                    "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
-                ),
+                text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
                 {"tid": str(tenant_id)},
             )
             return await _sum_booked(session, tenant_id, room_type_id, dates)
@@ -457,15 +475,13 @@ async def _booking_room_type_dates(
     session: AsyncSession, tenant_id: UUID, booking_id: UUID
 ) -> tuple[UUID | None, list]:
     lines = (
-        (
-            await session.execute(
-                select(BookingLine.room_type_id, BookingLine.date).where(
-                    BookingLine.tenant_id == tenant_id,
-                    BookingLine.booking_id == booking_id,
-                ),
-            )
-        ).all()
-    )
+        await session.execute(
+            select(BookingLine.room_type_id, BookingLine.date).where(
+                BookingLine.tenant_id == tenant_id,
+                BookingLine.booking_id == booking_id,
+            ),
+        )
+    ).all()
     if not lines:
         return None, []
     rt = lines[0][0]
@@ -479,14 +495,12 @@ async def _sum_booked(
     dates: list,
 ) -> int:
     result = (
-        (
-            await session.execute(
-                select(func.coalesce(func.sum(AvailabilityLedger.booked_rooms), 0)).where(
-                    AvailabilityLedger.tenant_id == tenant_id,
-                    AvailabilityLedger.room_type_id == room_type_id,
-                    AvailabilityLedger.date.in_(dates),
-                ),
-            )
-        ).scalar_one()
-    )
+        await session.execute(
+            select(func.coalesce(func.sum(AvailabilityLedger.booked_rooms), 0)).where(
+                AvailabilityLedger.tenant_id == tenant_id,
+                AvailabilityLedger.room_type_id == room_type_id,
+                AvailabilityLedger.date.in_(dates),
+            ),
+        )
+    ).scalar_one()
     return int(result)

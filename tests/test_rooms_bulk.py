@@ -20,10 +20,7 @@ def test_rooms_bulk_create_five(
         json={
             "room_type_id": str(rt_id),
             "on_conflict": "fail",
-            "rooms": [
-                {"name": f"bulk-{i}", "status": "available"}
-                for i in range(5)
-            ],
+            "rooms": [{"name": f"bulk-{i}", "status": "available"} for i in range(5)],
         },
     )
     assert r.status_code == 201

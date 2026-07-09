@@ -120,7 +120,9 @@ def test_same_email_two_tenants_are_distinct_guests(
     assert r1.json()["guest_id"] != r2.json()["guest_id"]
 
 
-def test_get_booking_returns_guest_names(client, folio_scenario: dict, auth_headers) -> None:
+def test_get_booking_returns_guest_names(
+    client, folio_scenario: dict, auth_headers
+) -> None:
     tid: UUID = folio_scenario["tenant_id"]  # type: ignore[assignment]
     uid: UUID = folio_scenario["user_id"]  # type: ignore[assignment]
     bid: UUID = folio_scenario["booking_id"]  # type: ignore[assignment]

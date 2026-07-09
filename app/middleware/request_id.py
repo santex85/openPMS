@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import structlog
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -26,10 +27,15 @@ class RequestIdASGIMiddleware:
         scope.setdefault("state", {})
         scope["state"]["request_id"] = request_id
 
+        ctx_token = structlog.contextvars.bind_contextvars(request_id=request_id)
+
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 h = MutableHeaders(scope=message)
                 h.setdefault("x-request-id", request_id)
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            structlog.contextvars.reset_contextvars(**ctx_token)

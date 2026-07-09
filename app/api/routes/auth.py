@@ -67,7 +67,7 @@ InviteManagerDep = Annotated[
     status_code=status.HTTP_201_CREATED,
     response_model_exclude_none=True,
 )
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 async def post_register(
     request: Request,
     response: Response,
@@ -105,7 +105,7 @@ async def post_register(
 
 
 @router.post("/login", response_model=AuthLoginPublicResponse)
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 async def post_login(
     request: Request,
     response: Response,
@@ -146,7 +146,7 @@ async def post_login(
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-@limiter.limit("60/minute")
+@limiter.limit("30/minute")
 async def post_refresh(
     request: Request,
     response: Response,
@@ -222,13 +222,16 @@ async def get_users(
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 async def post_change_password(
+    request: Request,
     _: Annotated[None, Depends(require_jwt_user())],
     session: SessionDep,
     tenant_id: TenantIdDep,
     user_id: UserIdDep,
     body: AuthChangePasswordRequest,
 ) -> None:
+    _ = request
     try:
         await change_password(session, tenant_id, user_id, body)
     except AuthServiceError as exc:
@@ -317,12 +320,15 @@ async def get_me(
     response_model=AuthInviteResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def post_invite(
+    request: Request,
     _: InviteManagerDep,
     session: SessionDep,
     tenant_id: TenantIdDep,
     body: AuthInviteRequest,
 ) -> AuthInviteResponse:
+    _ = request
     try:
         out = await invite_user(session, tenant_id, body)
     except AuthServiceError as exc:

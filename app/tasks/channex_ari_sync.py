@@ -9,6 +9,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy import select, text
 
+from app.core.sentry import capture_task_exception
 from app.core.config import get_settings
 from app.db.session import create_async_engine_and_sessionmaker
 from app.db.rls_session import tenant_transaction_session
@@ -191,6 +192,11 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                 link_row.error_message = msg[:2000]
                 await session.flush()
                 log.exception("channex_ari_sync_failed", error=msg)
+                capture_task_exception(
+                    exc,
+                    task_name="channex_full_ari_sync",
+                    tenant_id=str(tenant_id),
+                )
                 # Do not re-raise: ``session.begin()`` would roll back and hide the error.
                 return
             except Exception as exc:
@@ -198,6 +204,11 @@ async def _run_channex_full_ari_sync(tenant_id: UUID, property_id: UUID) -> None
                 link_row.error_message = msg
                 await session.flush()
                 log.exception("channex_ari_sync_unexpected", error=msg)
+                capture_task_exception(
+                    exc,
+                    task_name="channex_full_ari_sync",
+                    tenant_id=str(tenant_id),
+                )
                 return
 
             link_row.last_sync_at = datetime.now(timezone.utc)

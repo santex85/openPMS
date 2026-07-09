@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+
 class FolioTransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

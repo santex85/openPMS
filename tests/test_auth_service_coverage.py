@@ -84,7 +84,7 @@ def test_invite_user_success(client, smoke_scenario: dict, auth_headers) -> None
     body = r.json()
     assert body["user"]["email"] == "invited.viewer@smoke.example.com"
     assert body["user"]["role"] == "viewer"
-    assert "temporary_password" in body
+    assert "temporary_password" not in body
 
 
 def test_invite_user_duplicate_email(

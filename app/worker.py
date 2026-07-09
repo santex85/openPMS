@@ -4,10 +4,12 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import get_settings
+from app.core.sentry import init_sentry
 
 
 def create_celery_app() -> Celery:
     settings = get_settings()
+    init_sentry(settings)
     app = Celery("openpms", broker=settings.celery_broker_url)
     app.conf.update(
         result_backend=None,

@@ -31,7 +31,9 @@ def _request(headers: dict[str, str]) -> Request:
     return Request(scope)
 
 
-def test_migration_exempt_false_when_key_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migration_exempt_false_when_key_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("MIGRATION_RATE_LIMIT_KEY", "")
     get_settings.cache_clear()
     req = _request({MIGRATION_RATE_LIMIT_HEADER: "anything"})
@@ -42,7 +44,9 @@ def test_migration_exempt_false_when_key_unconfigured(monkeypatch: pytest.Monkey
         reset_rate_limit_request(token)
 
 
-def test_migration_exempt_true_when_header_matches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migration_exempt_true_when_header_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("MIGRATION_RATE_LIMIT_KEY", "import-secret")
     get_settings.cache_clear()
     req = _request({MIGRATION_RATE_LIMIT_HEADER: "import-secret"})

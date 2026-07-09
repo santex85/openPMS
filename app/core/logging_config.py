@@ -8,6 +8,16 @@ import os
 import structlog
 
 
+def _use_json_logs() -> bool:
+    """LOG_FORMAT takes precedence over legacy LOG_JSON."""
+    fmt = os.environ.get("LOG_FORMAT", "").strip().lower()
+    if fmt == "json":
+        return True
+    if fmt == "plain":
+        return False
+    return os.environ.get("LOG_JSON", "").lower() in ("1", "true", "yes")
+
+
 def configure_logging() -> None:
     """Idempotent-ish configure; safe to call from lifespan."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -19,7 +29,7 @@ def configure_logging() -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    if os.environ.get("LOG_JSON", "").lower() in ("1", "true", "yes"):
+    if _use_json_logs():
         processors = [
             *shared,
             structlog.processors.dict_tracebacks,

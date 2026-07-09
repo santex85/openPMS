@@ -42,7 +42,7 @@ from app.schemas.channex import (
     RoomMappingRequest,
 )
 from app.services.audit_service import record_audit
-from app.services import channex_service
+from app.services import channex_service, property_service
 from app.services.channex_service import ChannexServiceError
 
 router = APIRouter()
@@ -214,6 +214,11 @@ async def channex_status(
     tenant_id: TenantIdDep,
     property_id: Annotated[UUID, Query(description="OpenPMS property UUID")],
 ) -> ChannexStatusRead:
+    if await property_service.get_property(session, tenant_id, property_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Property not found",
+        )
     return await channex_service.get_status(session, tenant_id, property_id)
 
 

@@ -165,6 +165,18 @@ class Settings(BaseSettings):
         default="noreply@openpms.app",
         description='Default "from" address for transactional email (Resend-verified domain).',
     )
+    sentry_dsn: str | None = Field(
+        default=None,
+        description="Optional Sentry DSN; when unset, error reporting is disabled.",
+    )
+    app_env: str = Field(
+        default="development",
+        description="Deployment environment tag for Sentry and ops (e.g. staging, production).",
+    )
+    app_release: str | None = Field(
+        default=None,
+        description="Release identifier for Sentry (e.g. git SHA via APP_RELEASE).",
+    )
 
     @model_validator(mode="after")
     def validate_jwt_config(self) -> Self:

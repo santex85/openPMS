@@ -9,6 +9,7 @@ import structlog
 from sqlalchemy import text
 
 from app.core.config import get_settings
+from app.core.sentry import capture_task_exception
 from app.db.session import create_async_engine_and_sessionmaker
 from app.integrations.channex.client import ChannexApiError
 from app.models.integrations.channex_property_link import ChannexPropertyLink
@@ -198,4 +199,8 @@ async def _run_channex_process_webhook(webhook_log_id: UUID) -> None:
 
 @celery_app.task(name="channex_process_webhook")
 def channex_process_webhook(webhook_log_id: str) -> None:
-    asyncio.run(_run_channex_process_webhook(UUID(webhook_log_id)))
+    try:
+        asyncio.run(_run_channex_process_webhook(UUID(webhook_log_id)))
+    except Exception as exc:
+        capture_task_exception(exc, task_name="channex_process_webhook")
+        raise

@@ -62,7 +62,9 @@ def _issue_access_token(settings: Settings, user: User) -> str:
 MAX_ACTIVE_REFRESH_TOKENS = 10
 
 
-async def _revoke_excess_active_refresh_tokens(session: AsyncSession, user: User) -> None:
+async def _revoke_excess_active_refresh_tokens(
+    session: AsyncSession, user: User
+) -> None:
     """Leave at most MAX_ACTIVE_REFRESH_TOKENS active (non-expired, non-revoked) rows."""
     now = datetime.now(UTC)
     stale_ids = (
@@ -463,5 +465,4 @@ async def invite_user(
 
     return AuthInviteResponse(
         user=UserRead.model_validate(user),
-        temporary_password=temp_password,
     )

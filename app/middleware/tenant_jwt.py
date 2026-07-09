@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import structlog
 from jwt.exceptions import InvalidTokenError, PyJWTError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from app.services.api_key_service import hash_api_key
 def _is_auth_exempt_path(path: str) -> bool:
     exempt = {
         "/health",
+        "/health/deep",
         "/openapi.json",
         "/docs",
         "/redoc",
@@ -60,11 +62,18 @@ async def _call_with_audit_asgi(
 ) -> None:
     uid = getattr(request.state, "user_id", None)
     user_id = uid if isinstance(uid, UUID) else None
-    tok = bind_audit_context(user_id=user_id, ip_address=_client_ip(request))
+    audit_tok = bind_audit_context(user_id=user_id, ip_address=_client_ip(request))
+    tenant_id = getattr(request.state, "tenant_id", None)
+    log_ctx: dict[str, str] = {}
+    if isinstance(tenant_id, UUID):
+        log_ctx["tenant_id"] = str(tenant_id)
+    log_tok = structlog.contextvars.bind_contextvars(**log_ctx) if log_ctx else None
     try:
         await app(scope, receive, send)
     finally:
-        reset_audit_context(tok)
+        if log_tok is not None:
+            structlog.contextvars.reset_contextvars(**log_tok)
+        reset_audit_context(audit_tok)
 
 
 async def _authenticate_jwt(request: Request) -> bool:

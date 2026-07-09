@@ -217,17 +217,22 @@ def test_invite_email_failure_does_not_rollback_user(
     email = f"no-resend-{uuid4()}@example.com"
     with patch("app.services.email_service.get_settings") as gs:
         gs.return_value = MagicMock(resend_api_key="")
-        r = client.post(
-            "/auth/invite",
-            headers=auth_headers(tid, user_id=oid, role="owner"),
-            json={
-                "email": email,
-                "full_name": "No Resend Key",
-                "role": "viewer",
-            },
-        )
+        with patch(
+            "app.services.auth_service.token_urlsafe",
+            return_value="knowninvitepwd12",
+        ):
+            r = client.post(
+                "/auth/invite",
+                headers=auth_headers(tid, user_id=oid, role="owner"),
+                json={
+                    "email": email,
+                    "full_name": "No Resend Key",
+                    "role": "viewer",
+                },
+            )
     assert r.status_code == 201, r.text
-    pwd = r.json()["temporary_password"]
+    assert "temporary_password" not in r.json()
+    pwd = "knowninvitepwd12"
     lr = client.post(
         "/auth/login",
         json={

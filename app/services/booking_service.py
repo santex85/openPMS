@@ -108,7 +108,9 @@ class InvalidBookingContextError(Exception):
 class DuplicateExternalBookingError(Exception):
     """Another booking already uses this external_booking_id for the tenant."""
 
-    def __init__(self, detail: str = "booking with this external_booking_id already exists") -> None:
+    def __init__(
+        self, detail: str = "booking with this external_booking_id already exists"
+    ) -> None:
         super().__init__(detail)
         self.detail = detail
         self.status_code = 409

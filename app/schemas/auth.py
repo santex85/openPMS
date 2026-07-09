@@ -160,11 +160,3 @@ class AuthLoginPublicResponse(BaseModel):
 
 class AuthInviteResponse(BaseModel):
     user: UserRead
-    temporary_password: str = Field(
-        ...,
-        description=(
-            "Deprecated: the invitee receives the temporary password by email. "
-            "Kept for backward compatibility; do not persist in client logs."
-        ),
-        deprecated=True,
-    )

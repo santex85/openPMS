@@ -173,7 +173,9 @@ def db_engine():
     asyncio.run(_dispose())
 
 
-async def _seed_tenant_with_properties_scope_api_key(*, plaintext: str) -> tuple[str, str]:
+async def _seed_tenant_with_properties_scope_api_key(
+    *, plaintext: str
+) -> tuple[str, str]:
     """Tenant + properties:read API key (used by API key auth tests + /auth/me JWT-only)."""
     url = _database_url()
     if not url:

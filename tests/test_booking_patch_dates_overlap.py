@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import date, time
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -235,7 +234,6 @@ async def _seed_overlap_env(
         tenant_id = uuid4()
         uid = uuid4()
 
-
         factory = async_sessionmaker(
             db_engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -329,4 +327,3 @@ async def _seed_overlap_env(
         }
 
     return await __inner()
-

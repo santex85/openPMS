@@ -459,7 +459,7 @@ async def test_invite_user_direct(db_engine: object) -> None:
                 ),
             )
     assert inv.user.role == "housekeeper"
-    assert inv.temporary_password
+    assert inv.user.email == "invited-worker@example.com"
 
 
 @pytest.mark.asyncio

@@ -1,2 +1,3 @@
 # Local dev and CI (install: pip install -r requirements.txt -r requirements-dev.txt)
 ruff>=0.8.0,<1.0.0
+pip-audit>=2.7.0,<3.0.0

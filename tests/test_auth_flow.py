@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -157,18 +158,22 @@ def test_login_inactive_user_returns_401(
     tid = smoke_scenario["tenant_id"]
     oid = smoke_scenario["owner_id"]
     email = f"inactive-{uuid4()}@example.com"
-    inv = client.post(
-        "/auth/invite",
-        headers=auth_headers(tid, user_id=oid, role="owner"),
-        json={
-            "email": email,
-            "full_name": "Soon Inactive",
-            "role": "receptionist",
-        },
-    )
+    with patch(
+        "app.services.auth_service.token_urlsafe",
+        return_value="inactiveinvpwd1",
+    ):
+        inv = client.post(
+            "/auth/invite",
+            headers=auth_headers(tid, user_id=oid, role="owner"),
+            json={
+                "email": email,
+                "full_name": "Soon Inactive",
+                "role": "receptionist",
+            },
+        )
     assert inv.status_code == 201, inv.text
     uid = inv.json()["user"]["id"]
-    temp = inv.json()["temporary_password"]
+    temp = "inactiveinvpwd1"
     off = client.patch(
         f"/auth/users/{uid}",
         headers=auth_headers(tid, user_id=oid, role="owner"),
@@ -484,9 +489,7 @@ def test_refresh_failure_clears_cookie_after_invalid_attempt(client) -> None:
     )
     assert r.status_code == 401
     set_cookie_parts = [
-        hv
-        for hk, hv in r.headers.multi_items()
-        if hk.lower() == "set-cookie"
+        hv for hk, hv in r.headers.multi_items() if hk.lower() == "set-cookie"
     ]
     merged = "; ".join(set_cookie_parts)
     assert settings.refresh_cookie_name.lower() in merged.lower()

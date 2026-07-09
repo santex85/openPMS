@@ -192,7 +192,9 @@ def calculate_country_pack_tax_posting(
     """
     gross = _q2(base_price)
     if mode == TaxMode.off:
-        return CountryPackTaxPosting(lines=[], room_charge_amount=gross, total_amount=gross)
+        return CountryPackTaxPosting(
+            lines=[], room_charge_amount=gross, total_amount=gross
+        )
 
     adjusted_rules = _parse_rules(raw_rules)
     if mode == TaxMode.inclusive:

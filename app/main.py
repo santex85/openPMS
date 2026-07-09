@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import text
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -49,6 +50,7 @@ from app.api.routes import (
 from app.core.config import ensure_jwt_secret_not_weak, get_settings
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
+from app.core.sentry import init_sentry
 from app.db.session import create_async_engine_and_sessionmaker
 from app.middleware.rate_limit_request import RateLimitRequestContextMiddleware
 from app.middleware.request_id import RequestIdASGIMiddleware
@@ -60,6 +62,41 @@ from app.tasks.cleanup_webhook_logs import cleanup_old_delivery_logs
 @limiter.exempt
 async def _health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@limiter.exempt
+async def _health_deep(request: Request) -> JSONResponse:
+    """DB + Redis probe for ops; do not expose via public Caddy (internal/monitor only)."""
+    db_ok = False
+    redis_ok = False
+    try:
+        engine = request.app.state.db_engine
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    try:
+        import redis
+
+        client = redis.from_url(
+            get_settings().celery_broker_url,
+            socket_connect_timeout=2,
+        )
+        redis_ok = bool(client.ping())
+    except Exception:
+        redis_ok = False
+
+    healthy = db_ok and redis_ok
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={
+            "status": "ok" if healthy else "degraded",
+            "db": "ok" if db_ok else "error",
+            "redis": "ok" if redis_ok else "error",
+        },
+    )
 
 
 @lru_cache(maxsize=1)
@@ -95,6 +132,7 @@ async def _webhook_log_retention_loop(app: FastAPI) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
+    init_sentry(settings)
     ensure_jwt_secret_not_weak(settings)
     log = structlog.get_logger()
     if not settings.refresh_cookie_secure:
@@ -355,6 +393,13 @@ def create_app() -> FastAPI:
         _health_check,
         methods=["GET"],
         tags=["system"],
+    )
+    application.add_api_route(
+        "/health/deep",
+        _health_deep,
+        methods=["GET"],
+        tags=["system"],
+        include_in_schema=False,
     )
 
     @limiter.exempt

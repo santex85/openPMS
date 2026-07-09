@@ -1,0 +1,12 @@
+FROM postgres:16-alpine
+
+RUN apk add --no-cache aws-cli bash dcron
+
+COPY scripts/backup_pg_to_s3.sh /usr/local/bin/backup_pg_to_s3.sh
+RUN chmod +x /usr/local/bin/backup_pg_to_s3.sh
+
+# Daily at 03:00 UTC
+RUN echo "0 3 * * * /usr/local/bin/backup_pg_to_s3.sh >> /var/log/backup.log 2>&1" \
+    | crontab -
+
+CMD ["crond", "-f", "-l", "2"]

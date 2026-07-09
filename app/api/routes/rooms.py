@@ -187,7 +187,9 @@ async def post_room(
     return RoomRead.model_validate(row)
 
 
-@router.post("/bulk", response_model=RoomBulkCreateResult, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/bulk", response_model=RoomBulkCreateResult, status_code=status.HTTP_201_CREATED
+)
 async def post_rooms_bulk(
     _: RoomWriteRolesDep,
     body: RoomBulkCreate,

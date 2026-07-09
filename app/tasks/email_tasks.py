@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
+from app.core.sentry import capture_task_exception
 from app.core.config import get_settings
 from app.db.rls_session import tenant_transaction_session
 from app.db.session import create_async_engine_and_sessionmaker
@@ -78,6 +79,11 @@ async def _send_checkin_reminders_async() -> None:
                     booking_id=str(bid),
                     tenant_id=str(tid),
                     error=str(exc),
+                )
+                capture_task_exception(
+                    exc,
+                    task_name="send_checkin_reminders",
+                    tenant_id=str(tid),
                 )
     finally:
         await engine.dispose()

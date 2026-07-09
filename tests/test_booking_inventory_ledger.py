@@ -159,12 +159,16 @@ def test_post_requires_ledger_row_per_night(
         uid = uuid4()
         n1 = date(2029, 1, 10)
         n2 = date(2029, 1, 11)
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -279,21 +283,25 @@ def _run_sum_booked(
     async def _go() -> int:
         engine = create_async_engine(url)
         try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
             async with factory() as session:
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tenant_id)},
                 )
                 row = (
-                    (
-                        await session.execute(
-                            select(func.coalesce(func.sum(AvailabilityLedger.booked_rooms), 0)).where(
-                                AvailabilityLedger.tenant_id == tenant_id,
-                                AvailabilityLedger.room_type_id == rt_id,
-                                AvailabilityLedger.date.in_(nights),
-                            ),
-                        )
+                    await session.execute(
+                        select(
+                            func.coalesce(func.sum(AvailabilityLedger.booked_rooms), 0)
+                        ).where(
+                            AvailabilityLedger.tenant_id == tenant_id,
+                            AvailabilityLedger.room_type_id == rt_id,
+                            AvailabilityLedger.date.in_(nights),
+                        ),
                     )
                 ).scalar_one()
             return int(row)
@@ -312,12 +320,16 @@ def ledger_full_fixture(db_engine: object) -> dict[str, UUID]:
         uid = uuid4()
         n1 = date(2029, 2, 1)
         n2 = date(2029, 2, 2)
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -397,7 +409,9 @@ def ledger_full_fixture(db_engine: object) -> dict[str, UUID]:
     if not _url():
         pytest.skip("DATABASE_URL required")
     ctx = asyncio.run(_s())
-    ctx["factory"] = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    ctx["factory"] = async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
     ctx["nights"] = [date(2029, 2, 1), date(2029, 2, 2)]
     return ctx
 
@@ -441,12 +455,16 @@ def ledger_blocked_fixture(db_engine: object) -> dict[str, UUID]:
         uid = uuid4()
         n1 = date(2029, 3, 1)
         n2 = date(2029, 3, 2)
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -638,7 +656,9 @@ def test_patch_cancel_returns_inventory(
         assert url
         engine = create_async_engine(url)
         try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
 
             async def _inner() -> tuple[UUID, int]:
                 async with factory() as session:
@@ -688,7 +708,6 @@ def test_patch_cancel_returns_inventory(
     assert after == before - 3
 
 
-
 def test_patch_no_show_returns_inventory(
     client,
     auth_headers,
@@ -705,7 +724,9 @@ def test_patch_no_show_returns_inventory(
         assert url
         engine = create_async_engine(url)
         try:
-            factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            factory = async_sessionmaker(
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
             bid_out: UUID
             rt_out: UUID
             async with factory() as session:
@@ -834,7 +855,7 @@ def test_patch_no_show_returns_inventory(
     )
     h = auth_headers(sc["tenant_id"], user_id=sc["user_id"], role="receptionist")
     r = client.patch(
-        f'/bookings/{sc["booking_id"]}',
+        f"/bookings/{sc['booking_id']}",
         headers=h,
         json={"status": "no_show"},
     )

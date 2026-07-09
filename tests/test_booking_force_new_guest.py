@@ -63,7 +63,9 @@ def test_create_booking_force_new_guest_true_creates_fresh_guest(
     r = client.post(
         "/bookings",
         headers=auth_headers(tid, user_id=uid, role="receptionist"),
-        json=_post_booking_body(booking_post_ctx_blank, email=email, force_new_guest=True),
+        json=_post_booking_body(
+            booking_post_ctx_blank, email=email, force_new_guest=True
+        ),
     )
     assert r.status_code == 201, r.text
     data = r.json()
@@ -81,7 +83,9 @@ def test_create_booking_force_new_guest_false_merges_existing(
     r = client.post(
         "/bookings",
         headers=auth_headers(tid, user_id=uid, role="receptionist"),
-        json=_post_booking_body(booking_post_ctx_merge_email, email=email, force_new_guest=False),
+        json=_post_booking_body(
+            booking_post_ctx_merge_email, email=email, force_new_guest=False
+        ),
     )
     assert r.status_code == 201, r.text
     assert r.json()["guest_merged"] is True
@@ -98,7 +102,9 @@ def test_create_booking_force_new_guest_email_collision_returns_409(
     r = client.post(
         "/bookings",
         headers=auth_headers(tid, user_id=uid, role="receptionist"),
-        json=_post_booking_body(booking_post_ctx_merge_email, email=email, force_new_guest=True),
+        json=_post_booking_body(
+            booking_post_ctx_merge_email, email=email, force_new_guest=True
+        ),
     )
     assert r.status_code == 409
     assert "email" in (r.json().get("detail") or "").lower()
@@ -115,7 +121,9 @@ def test_create_booking_force_new_guest_false_creates_new_when_no_match(
     r = client.post(
         "/bookings",
         headers=auth_headers(tid, user_id=uid, role="receptionist"),
-        json=_post_booking_body(booking_post_ctx_blank, email=email, force_new_guest=False),
+        json=_post_booking_body(
+            booking_post_ctx_blank, email=email, force_new_guest=False
+        ),
     )
     assert r.status_code == 201, r.text
     assert r.json()["guest_merged"] is False

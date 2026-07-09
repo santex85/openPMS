@@ -39,12 +39,16 @@ def booking_pending_confirm_ctx(db_engine: object) -> dict[str, UUID]:
         tid = uuid4()
         uid = uuid4()
         nights = [date(2033, 5, 1), date(2033, 5, 2)]
-        factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+        factory = async_sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
                 await session.execute(
-                    text("SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"),
+                    text(
+                        "SELECT set_config('app.tenant_id', CAST(:tid AS text), true)"
+                    ),
                     {"tid": str(tid)},
                 )
                 session.add(
@@ -179,8 +183,6 @@ def test_patch_confirmed_no_show_returns_204(
     h = auth_headers(tid, user_id=uid, role="receptionist")
     r = client.patch(f"/bookings/{bid}", headers=h, json={"status": "no_show"})
     assert r.status_code == 204
-
-
 
 
 def test_patch_checked_in_no_show_forbidden_returns_409(
