@@ -39,10 +39,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgresql+asyncpg://openpms:openpms@127.0.0.1:5432/openpms_test
       JWT_SECRET: ci-jwt-secret-key-at-least-32-characters!!
+      CELERY_BROKER_URL: redis://localhost:6379/0
 
     steps:
       - uses: actions/checkout@v4
