@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 
+import structlog
+from jwt.exceptions import PyJWTError
 from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.core.jwt_keys import encode_token
+from app.core.jwt_keys import decode_password_reset_token, encode_token
 from app.core.security import (
     hash_password,
     hash_refresh_token,
@@ -18,10 +21,12 @@ from app.core.security import (
     password_needs_rehash,
     verify_password,
 )
+from app.db.rls_session import tenant_transaction_session
 from app.models.auth.refresh_token import RefreshToken
 from app.models.auth.user import User
 from app.models.core.tenant import Tenant
-from app.services.email_service import send_invite_email
+from app.services.audit_service import record_audit
+from app.services.email_service import send_invite_email, send_password_reset_email
 from app.services.folio_category_service import ensure_builtin_categories
 from app.schemas.auth import (
     AuthChangePasswordRequest,
@@ -36,6 +41,10 @@ from app.schemas.auth import (
     UserPatchRequest,
     UserRead,
 )
+
+log = structlog.get_logger()
+
+PASSWORD_RESET_TTL = timedelta(hours=1)
 
 
 class AuthServiceError(Exception):
@@ -326,6 +335,121 @@ async def change_password(
     user.password_hash = hash_password(body.new_password)
     await _revoke_all_refresh_tokens_for_user(session, tenant_id, user_id)
     await session.flush()
+
+
+def _password_fingerprint(password_hash: str) -> str:
+    """Short digest of the stored hash; changes on any password change.
+
+    Embedded in the reset token so a token stops working the moment the
+    password is changed (single-use without server-side token storage).
+    """
+    return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()[:12]
+
+
+def _issue_password_reset_token(settings: Settings, user: User) -> str:
+    now = datetime.now(UTC)
+    payload: dict[str, object] = {
+        "sub": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "typ": "password_reset",
+        "pwd_fp": _password_fingerprint(user.password_hash),
+        "iat": now,
+        "exp": now + PASSWORD_RESET_TTL,
+    }
+    return encode_token(settings, payload)
+
+
+async def request_password_reset(
+    factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    email: str,
+) -> None:
+    """Email a reset link to every active account for this email.
+
+    Never raises and never signals whether the email exists (anti-enumeration).
+    """
+    email_norm = email.strip().lower()
+    try:
+        async with factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "SELECT tenant_id, user_id FROM "
+                        "lookup_active_users_by_email_login(CAST(:email AS text))",
+                    ),
+                    {"email": email_norm},
+                )
+                rows = result.all()
+    except Exception:
+        log.error("password_reset_lookup_failed")
+        return
+
+    for tenant_id, user_id in rows:
+        try:
+            async with tenant_transaction_session(factory, tenant_id) as session:
+                user = await session.scalar(
+                    select(User).where(
+                        User.tenant_id == tenant_id,
+                        User.id == user_id,
+                    ),
+                )
+                if user is None or not user.is_active:
+                    continue
+                token = _issue_password_reset_token(settings, user)
+                base = settings.frontend_base_url.rstrip("/")
+                reset_link = f"{base}/reset-password?token={token}"
+                await send_password_reset_email(
+                    session,
+                    tenant_id,
+                    to_email=user.email,
+                    full_name=user.full_name,
+                    reset_link=reset_link,
+                )
+        except Exception:
+            log.error("password_reset_send_failed", tenant_id=str(tenant_id))
+            continue
+
+
+async def reset_password(
+    factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    token: str,
+    new_password: str,
+) -> None:
+    try:
+        payload = decode_password_reset_token(settings, token)
+    except PyJWTError as exc:
+        raise AuthServiceError("invalid or expired token", status_code=401) from exc
+
+    try:
+        tenant_id = UUID(str(payload["tenant_id"]))
+        user_id = UUID(str(payload["sub"]))
+    except (KeyError, ValueError) as exc:
+        raise AuthServiceError("invalid or expired token", status_code=401) from exc
+    pwd_fp = str(payload.get("pwd_fp") or "")
+
+    async with tenant_transaction_session(factory, tenant_id) as session:
+        user = await session.scalar(
+            select(User).where(
+                User.tenant_id == tenant_id,
+                User.id == user_id,
+            ),
+        )
+        if user is None or not user.is_active:
+            raise AuthServiceError("invalid or expired token", status_code=401)
+        if _password_fingerprint(user.password_hash) != pwd_fp:
+            raise AuthServiceError("invalid or expired token", status_code=401)
+        user.password_hash = hash_password(new_password)
+        await _revoke_all_refresh_tokens_for_user(session, tenant_id, user_id)
+        await session.flush()
+        await record_audit(
+            session,
+            tenant_id=tenant_id,
+            action="user.reset_password",
+            entity_type="user",
+            entity_id=user_id,
+            new_values={},
+        )
 
 
 _USER_ROLES = frozenset({"owner", "manager", "viewer", "housekeeper", "receptionist"})

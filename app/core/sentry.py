@@ -76,6 +76,25 @@ def init_sentry(settings: Settings) -> None:
     )
 
 
+def capture_message_with_tags(
+    message: str,
+    *,
+    level: str = "warning",
+    tags: dict[str, str] | None = None,
+) -> None:
+    """Send a Sentry message with tags when Sentry is initialized; no-op otherwise."""
+    try:
+        import sentry_sdk
+    except ImportError:
+        return
+    if not sentry_sdk.is_initialized():
+        return
+    with sentry_sdk.push_scope() as scope:
+        for key, value in (tags or {}).items():
+            scope.set_tag(key, value)
+        sentry_sdk.capture_message(message, level=level)
+
+
 def capture_task_exception(
     exc: BaseException,
     *,

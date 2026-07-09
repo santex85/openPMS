@@ -181,6 +181,33 @@ async def send_invite_email(
     )
 
 
+async def send_password_reset_email(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    to_email: str,
+    full_name: str,
+    reset_link: str,
+) -> None:
+    ctx: dict[str, Any] = {
+        "full_name": full_name,
+        "reset_link": reset_link,
+        "property": {},
+    }
+    html = render_email("password_reset.html", ctx)
+    subject = "Reset your OpenPMS password"
+    await send_booking_email(
+        session,
+        tenant_id,
+        to_email.strip(),
+        subject,
+        html,
+        property_id=None,
+        booking_id=None,
+        template_name="password_reset",
+    )
+
+
 async def send_property_test_email(
     session: AsyncSession,
     tenant_id: UUID,

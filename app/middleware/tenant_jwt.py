@@ -33,7 +33,10 @@ def _is_auth_exempt_path(path: str) -> bool:
         "/auth/login",
         "/auth/refresh",
         "/auth/logout",
+        "/auth/forgot-password",
+        "/auth/reset-password",
         "/webhooks/channex",
+        "/webhooks/stripe",
         "/stripe/oauth/callback",
     }
     if path in exempt:

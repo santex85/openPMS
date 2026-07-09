@@ -22,6 +22,7 @@ from app.db.rls_session import tenant_transaction_session
 from app.schemas.auth import (
     AccessTokenResponse,
     AuthChangePasswordRequest,
+    AuthForgotPasswordRequest,
     AuthInviteRequest,
     AuthInviteResponse,
     AuthLogoutRequest,
@@ -30,6 +31,7 @@ from app.schemas.auth import (
     AuthRegisterPublicResponse,
     AuthRefreshRequest,
     AuthRegisterRequest,
+    AuthResetPasswordRequest,
     UserPatchRequest,
     UserRead,
 )
@@ -45,6 +47,8 @@ from app.services.auth_service import (
     patch_user,
     refresh_session,
     register_tenant_owner,
+    request_password_reset,
+    reset_password,
     resolve_tenant_id_for_email_login,
 )
 
@@ -209,6 +213,46 @@ async def post_logout(
             await revoke_refresh_session(session, tenant_id_val, resolved)
 
     clear_refresh_cookie(response, settings)
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Request a password-reset email",
+    description=(
+        "Always returns 204 regardless of whether the email exists (anti-enumeration). "
+        "If the email matches active accounts, a time-limited reset link is emailed."
+    ),
+)
+@limiter.limit("5/minute")
+async def post_forgot_password(
+    request: Request,
+    body: AuthForgotPasswordRequest,
+) -> None:
+    settings = get_settings()
+    factory = request.app.state.async_session_factory
+    await request_password_reset(factory, settings, body.email)
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Reset password using an emailed token",
+)
+@limiter.limit("10/minute")
+async def post_reset_password(
+    request: Request,
+    body: AuthResetPasswordRequest,
+) -> None:
+    settings = get_settings()
+    factory = request.app.state.async_session_factory
+    try:
+        await reset_password(factory, settings, body.token, body.new_password)
+    except AuthServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
 
 
 @router.get("/users", response_model=list[UserRead])

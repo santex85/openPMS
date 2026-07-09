@@ -43,6 +43,7 @@ from app.api.routes import (
     room_types,
     rooms,
     stripe_connect,
+    stripe_inbound,
     stripe_payments,
     unpaid_folio_summary,
     webhooks,
@@ -372,6 +373,11 @@ def create_app() -> FastAPI:
         channex_inbound.router,
         prefix="/webhooks",
         tags=["channex-webhooks"],
+    )
+    application.include_router(
+        stripe_inbound.router,
+        prefix="/webhooks",
+        tags=["stripe-webhooks"],
     )
     application.include_router(channex.router, prefix="/channex", tags=["channex"])
     application.include_router(

@@ -96,6 +96,28 @@ def decode_access_token(
     return payload
 
 
+def decode_password_reset_token(settings: Settings, token: str) -> dict:
+    """Verify a password-reset JWT (signature, exp, typ, required claims)."""
+    key, algorithm = jwt_verifying_material(settings)
+    payload = jwt.decode(
+        token,
+        key,
+        algorithms=[algorithm],
+        options={
+            "require": ["exp", "sub"],
+            "verify_signature": True,
+            "verify_exp": True,
+        },
+    )
+    if payload.get("typ") != "password_reset":
+        raise InvalidTokenError("Not a password-reset token")
+    if payload.get("tenant_id") is None:
+        raise InvalidTokenError("Missing required tenant_id claim")
+    if not payload.get("pwd_fp"):
+        raise InvalidTokenError("Missing required pwd_fp claim")
+    return payload
+
+
 def encode_token(settings: Settings, payload: dict) -> str:
     key, algorithm = jwt_signing_material(settings)
     return jwt.encode(payload, key, algorithm=algorithm)

@@ -10,6 +10,8 @@ Use this list before pointing real traffic at a new environment. Mark each item 
 - [ ] `REFRESH_COOKIE_SECURE=true` (HTTPS only).
 - [ ] Decide `ALLOW_PUBLIC_REGISTRATION`: `false` + invite flow for production, or document why open registration is acceptable.
 - [ ] `RESEND_API_KEY` and `EMAIL_FROM_DEFAULT` set for transactional email.
+- [ ] `FRONTEND_BASE_URL` set to the public SPA origin (password-reset links point here).
+- [ ] `STRIPE_WEBHOOK_SECRET` set if inbound Stripe webhooks are used (empty ⇒ `/webhooks/stripe` returns 503).
 - [ ] Optional: `SENTRY_DSN`, `APP_ENV=production`, `APP_RELEASE=<git-sha>`.
 
 ## TLS and edge (Caddy)
@@ -35,8 +37,16 @@ header {
 - [ ] `POST /auth/register` — 10/minute.
 - [ ] `POST /auth/refresh` — 30/minute.
 - [ ] `POST /auth/invite`, `POST /auth/change-password` — 30/minute.
-- [ ] `POST /auth/forgot-password` — **N/A** (route not implemented).
+- [ ] `POST /auth/forgot-password` — 5/minute; `POST /auth/reset-password` — 10/minute.
 - [ ] Channex inbound `POST /webhooks/channex` — default 300/minute (burst-friendly).
+- [ ] Stripe inbound `POST /webhooks/stripe` — default 300/minute (burst-friendly).
+
+## Stripe inbound webhook
+
+- [ ] In Stripe Dashboard → Developers → Webhooks, add endpoint `https://<api-domain>/webhooks/stripe`.
+- [ ] Subscribe to events: `charge.refunded`, `charge.dispute.created`.
+- [ ] Copy the signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
+- [ ] Verify a test event is accepted (200) and a bad signature is rejected (400).
 
 ## Observability
 

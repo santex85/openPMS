@@ -100,6 +100,13 @@ class Settings(BaseSettings):
             "When false, POST /auth/register returns 403; use invite flow (/auth/invite) instead."
         ),
     )
+    frontend_base_url: str = Field(
+        default="http://localhost:5173",
+        description=(
+            "Public base URL of the SPA; used to build the password-reset link "
+            "sent by email ({frontend_base_url}/reset-password?token=...)."
+        ),
+    )
     channex_webhook_url: str = Field(
         default="",
         description=(
@@ -148,6 +155,13 @@ class Settings(BaseSettings):
         description=(
             "HMAC secret for signing OAuth state (tenant_id + property_id). "
             "Defaults to jwt_secret (HS256) or webhook_secret_fernet_key material when unset."
+        ),
+    )
+    stripe_webhook_secret: str = Field(
+        default="",
+        description=(
+            "Signing secret (whsec_...) for inbound POST /webhooks/stripe. "
+            "When empty the endpoint returns 503; events are verified via construct_event."
         ),
     )
     migration_rate_limit_key: str = Field(

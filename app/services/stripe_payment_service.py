@@ -391,6 +391,54 @@ async def refund_stripe_charge(
     return ch
 
 
+async def reconcile_refund_from_webhook(
+    session: AsyncSession,
+    tenant_id: UUID,
+    stripe_charge_row_id: UUID,
+    amount_refunded: Decimal | None,
+) -> bool:
+    """Reconcile a Stripe-initiated refund (charge.refunded webhook).
+
+    Mirrors ``refund_stripe_charge`` bookkeeping without calling the Stripe API.
+    Idempotent: acts only while the charge is still ``succeeded`` (redelivery or
+    an API-initiated refund that already updated the row is a no-op).
+    Returns True when the charge was reconciled.
+    """
+    ch = await session.scalar(
+        select(StripeCharge).where(
+            StripeCharge.tenant_id == tenant_id,
+            StripeCharge.id == stripe_charge_row_id,
+        ),
+    )
+    if ch is None or ch.status != "succeeded":
+        return False
+
+    if amount_refunded is not None and amount_refunded > 0:
+        refund_amt = amount_refunded.quantize(Decimal("0.01"))
+    else:
+        refund_amt = ch.amount
+    if refund_amt > ch.amount:
+        refund_amt = ch.amount
+
+    ch.status = "refunded" if refund_amt >= ch.amount else "partial_refund"
+    await session.flush()
+
+    folio = FolioTransaction(
+        tenant_id=tenant_id,
+        booking_id=ch.booking_id,
+        transaction_type="Payment",
+        amount=(-refund_amt).quantize(Decimal("0.01")),
+        payment_method="stripe",
+        description="Stripe refund (webhook)",
+        created_by=None,
+        category="payment",
+        source_channel="stripe",
+    )
+    session.add(folio)
+    await session.flush()
+    return True
+
+
 async def list_booking_stripe_charges(
     session: AsyncSession,
     tenant_id: UUID,
