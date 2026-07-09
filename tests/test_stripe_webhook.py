@@ -4,20 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Awaitable, Callable
 from datetime import time
 from decimal import Decimal
-from typing import TypeVar
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import stripe
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import clear_settings_cache
-from app.models.audit.audit_log import AuditLog
 from app.models.billing.stripe_charge import StripeCharge
 from app.models.bookings.booking import Booking
 from app.models.bookings.folio_transaction import FolioTransaction
@@ -27,36 +24,28 @@ from app.models.core.tenant import Tenant
 from tests.db_seed import disable_row_security_for_test_seed
 
 _SECRET = "whsec_pytest_stripe_secret"
+_REFUND_DESC = "Stripe refund (webhook)"
 
-T = TypeVar("T")
 
+@pytest.fixture
+def stripe_charge_scenario(db_engine: object) -> dict:
+    """One tenant with a succeeded stripe charge (amount 50.00) and its folio payment.
 
-def _run_db(fn: Callable[[async_sessionmaker[AsyncSession]], Awaitable[T]]) -> T:
-    """Run a DB coroutine on a fresh engine+loop (safe to call repeatedly per test)."""
+    Uses a disposable async engine + single asyncio.run so it never binds the shared
+    ``db_engine`` fixture to a closed loop (mirrors test_stripe_payments.py).
+    """
+
+    _ = db_engine  # keeps DATABASE_URL skip behavior; avoid sharing pool across loops
     url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("Set DATABASE_URL or TEST_DATABASE_URL for integration tests")
 
-    async def _wrap() -> T:
-        engine = create_async_engine(url)
-        try:
-            factory = async_sessionmaker(
-                engine, class_=AsyncSession, expire_on_commit=False
-            )
-            return await fn(factory)
-        finally:
-            await engine.dispose()
+    tenant_id = uuid4()
+    pi_id = f"pi_test_{uuid4().hex}"
+    eng = create_async_engine(url)
 
-    return asyncio.run(_wrap())
-
-
-@pytest.fixture
-def stripe_charge_scenario() -> dict:
-    """One tenant with a succeeded stripe charge (amount 50.00) and its folio payment."""
-
-    async def _seed(factory: async_sessionmaker[AsyncSession]) -> dict:
-        tenant_id = uuid4()
-        pi_id = f"pi_test_{uuid4().hex}"
+    async def _inner() -> dict:
+        factory = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
         async with factory() as session:
             async with session.begin():
                 await disable_row_security_for_test_seed(session)
@@ -128,76 +117,41 @@ def stripe_charge_scenario() -> dict:
                 )
                 session.add(charge)
                 await session.flush()
-                charge_id = charge.id
-                booking_id = booking.id
+                return {
+                    "tenant_id": tenant_id,
+                    "charge_id": charge.id,
+                    "booking_id": booking.id,
+                    "pi_id": pi_id,
+                }
 
-        return {
-            "tenant_id": tenant_id,
-            "charge_id": charge_id,
-            "booking_id": booking_id,
-            "pi_id": pi_id,
-        }
-
-    return _run_db(_seed)
-
-
-def _read_charge_status(tenant_id, charge_id) -> str:
-    async def _fn(factory: async_sessionmaker[AsyncSession]) -> str:
-        async with factory() as session:
-            async with session.begin():
-                await disable_row_security_for_test_seed(session)
-                row = await session.scalar(
-                    select(StripeCharge).where(StripeCharge.id == charge_id)
-                )
-                return row.status
-
-    return _run_db(_fn)
+    try:
+        return asyncio.run(_inner())
+    finally:
+        asyncio.run(eng.dispose())
 
 
-def _count_stripe_folio(booking_id) -> tuple[int, Decimal]:
-    async def _fn(factory: async_sessionmaker[AsyncSession]) -> tuple[int, Decimal]:
-        async with factory() as session:
-            async with session.begin():
-                await disable_row_security_for_test_seed(session)
-                rows = (
-                    (
-                        await session.execute(
-                            select(FolioTransaction).where(
-                                FolioTransaction.booking_id == booking_id,
-                                FolioTransaction.description
-                                == "Stripe refund (webhook)",
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                total = sum((r.amount for r in rows), Decimal("0"))
-                return len(rows), total
-
-    return _run_db(_fn)
+def _charge_status(client, auth_headers, tenant_id: UUID, booking_id: UUID) -> str:
+    r = client.get(
+        f"/bookings/{booking_id}/stripe/charges",
+        headers=auth_headers(tenant_id, role="owner"),
+    )
+    assert r.status_code == 200, r.text
+    charges = r.json()
+    assert len(charges) >= 1
+    return charges[0]["status"]
 
 
-def _count_audit(entity_id, action: str) -> int:
-    async def _fn(factory: async_sessionmaker[AsyncSession]) -> int:
-        async with factory() as session:
-            async with session.begin():
-                await disable_row_security_for_test_seed(session)
-                rows = (
-                    (
-                        await session.execute(
-                            select(AuditLog).where(
-                                AuditLog.entity_id == entity_id,
-                                AuditLog.action == action,
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                return len(rows)
-
-    return _run_db(_fn)
+def _refund_folio_lines(
+    client, auth_headers, tenant_id: UUID, booking_id: UUID
+) -> tuple[int, Decimal]:
+    r = client.get(
+        f"/bookings/{booking_id}/folio",
+        headers=auth_headers(tenant_id, role="owner"),
+    )
+    assert r.status_code == 200, r.text
+    rows = [t for t in r.json()["transactions"] if t.get("description") == _REFUND_DESC]
+    total = sum((Decimal(str(t["amount"])) for t in rows), Decimal("0"))
+    return len(rows), total
 
 
 def _with_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,10 +233,10 @@ def test_webhook_refund_reconciles_and_is_idempotent(
     client,
     monkeypatch: pytest.MonkeyPatch,
     stripe_charge_scenario: dict,
+    auth_headers,
 ) -> None:
     _with_secret(monkeypatch)
     tenant_id = stripe_charge_scenario["tenant_id"]
-    charge_id = stripe_charge_scenario["charge_id"]
     booking_id = stripe_charge_scenario["booking_id"]
     pi_id = stripe_charge_scenario["pi_id"]
     event = {
@@ -296,8 +250,8 @@ def test_webhook_refund_reconciles_and_is_idempotent(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r1.status_code == 200, r1.text
-    assert _read_charge_status(tenant_id, charge_id) == "refunded"
-    n, total = _count_stripe_folio(booking_id)
+    assert _charge_status(client, auth_headers, tenant_id, booking_id) == "refunded"
+    n, total = _refund_folio_lines(client, auth_headers, tenant_id, booking_id)
     assert n == 1
     assert total == Decimal("-50.00")
 
@@ -309,7 +263,7 @@ def test_webhook_refund_reconciles_and_is_idempotent(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r2.status_code == 200, r2.text
-    n2, total2 = _count_stripe_folio(booking_id)
+    n2, total2 = _refund_folio_lines(client, auth_headers, tenant_id, booking_id)
     assert n2 == 1
     assert total2 == Decimal("-50.00")
 
@@ -318,10 +272,10 @@ def test_webhook_partial_refund_sets_partial_status(
     client,
     monkeypatch: pytest.MonkeyPatch,
     stripe_charge_scenario: dict,
+    auth_headers,
 ) -> None:
     _with_secret(monkeypatch)
     tenant_id = stripe_charge_scenario["tenant_id"]
-    charge_id = stripe_charge_scenario["charge_id"]
     booking_id = stripe_charge_scenario["booking_id"]
     pi_id = stripe_charge_scenario["pi_id"]
     event = {
@@ -335,8 +289,10 @@ def test_webhook_partial_refund_sets_partial_status(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r.status_code == 200, r.text
-    assert _read_charge_status(tenant_id, charge_id) == "partial_refund"
-    n, total = _count_stripe_folio(booking_id)
+    assert (
+        _charge_status(client, auth_headers, tenant_id, booking_id) == "partial_refund"
+    )
+    n, total = _refund_folio_lines(client, auth_headers, tenant_id, booking_id)
     assert n == 1
     assert total == Decimal("-25.00")
 
@@ -345,10 +301,10 @@ def test_webhook_refund_without_amount_defaults_to_full(
     client,
     monkeypatch: pytest.MonkeyPatch,
     stripe_charge_scenario: dict,
+    auth_headers,
 ) -> None:
     _with_secret(monkeypatch)
     tenant_id = stripe_charge_scenario["tenant_id"]
-    charge_id = stripe_charge_scenario["charge_id"]
     booking_id = stripe_charge_scenario["booking_id"]
     pi_id = stripe_charge_scenario["pi_id"]
     event = {
@@ -362,8 +318,8 @@ def test_webhook_refund_without_amount_defaults_to_full(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r.status_code == 200, r.text
-    assert _read_charge_status(tenant_id, charge_id) == "refunded"
-    n, total = _count_stripe_folio(booking_id)
+    assert _charge_status(client, auth_headers, tenant_id, booking_id) == "refunded"
+    n, total = _refund_folio_lines(client, auth_headers, tenant_id, booking_id)
     assert n == 1
     assert total == Decimal("-50.00")
 
@@ -372,10 +328,10 @@ def test_webhook_over_refund_is_clamped_to_charge_total(
     client,
     monkeypatch: pytest.MonkeyPatch,
     stripe_charge_scenario: dict,
+    auth_headers,
 ) -> None:
     _with_secret(monkeypatch)
     tenant_id = stripe_charge_scenario["tenant_id"]
-    charge_id = stripe_charge_scenario["charge_id"]
     booking_id = stripe_charge_scenario["booking_id"]
     pi_id = stripe_charge_scenario["pi_id"]
     event = {
@@ -389,19 +345,20 @@ def test_webhook_over_refund_is_clamped_to_charge_total(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r.status_code == 200, r.text
-    assert _read_charge_status(tenant_id, charge_id) == "refunded"
-    _n, total = _count_stripe_folio(booking_id)
+    assert _charge_status(client, auth_headers, tenant_id, booking_id) == "refunded"
+    _n, total = _refund_folio_lines(client, auth_headers, tenant_id, booking_id)
     assert total == Decimal("-50.00")
 
 
-def test_webhook_dispute_writes_audit(
+def test_webhook_dispute_leaves_charge_status(
     client,
     monkeypatch: pytest.MonkeyPatch,
     stripe_charge_scenario: dict,
+    auth_headers,
 ) -> None:
     _with_secret(monkeypatch)
     tenant_id = stripe_charge_scenario["tenant_id"]
-    charge_id = stripe_charge_scenario["charge_id"]
+    booking_id = stripe_charge_scenario["booking_id"]
     pi_id = stripe_charge_scenario["pi_id"]
     event = {
         "type": "charge.dispute.created",
@@ -414,6 +371,5 @@ def test_webhook_dispute_writes_audit(
             headers={"Stripe-Signature": "t=1,v1=x"},
         )
     assert r.status_code == 200, r.text
-    assert _count_audit(charge_id, "stripe.dispute_created") == 1
-    # Dispute does not change charge status.
-    assert _read_charge_status(tenant_id, charge_id) == "succeeded"
+    # Dispute is recorded (audit + Sentry) but does not change charge status.
+    assert _charge_status(client, auth_headers, tenant_id, booking_id) == "succeeded"

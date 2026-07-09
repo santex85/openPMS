@@ -1,7 +1,11 @@
 # Local development overrides (included automatically by `docker compose`).
 # Exposes the API on :8000 without going through Caddy and mounts tests for `make test-docker`.
+# Builds the `dev` stage so pytest/ruff/pip-audit (requirements-dev.txt) are available.
 services:
   api:
+    build:
+      context: .
+      target: dev
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

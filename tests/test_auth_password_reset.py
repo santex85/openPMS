@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
@@ -189,7 +188,7 @@ def test_reset_password_unknown_user_returns_401(client) -> None:
     assert r.status_code == 401, r.text
 
 
-def test_request_password_reset_swallows_lookup_failure() -> None:
+async def test_request_password_reset_swallows_lookup_failure() -> None:
     """A DB error during the email lookup must not raise (anti-enumeration)."""
 
     class _BoomFactory:
@@ -197,9 +196,7 @@ def test_request_password_reset_swallows_lookup_failure() -> None:
             raise RuntimeError("db unavailable")
 
     # Should complete without raising.
-    asyncio.run(
-        request_password_reset(_BoomFactory(), get_settings(), "boom@example.com")
-    )
+    await request_password_reset(_BoomFactory(), get_settings(), "boom@example.com")
 
 
 def test_forgot_password_rate_limited_after_5(client) -> None:

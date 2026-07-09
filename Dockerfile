@@ -24,6 +24,11 @@ COPY migrations ./migrations
 COPY app ./app
 COPY scripts ./scripts
 
+# Dev stage: adds test/lint/audit tooling for `make test-docker*` (not used by prod runtime).
+FROM builder AS dev
+COPY requirements-dev.txt .
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
