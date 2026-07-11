@@ -242,12 +242,15 @@ async def charge_booking(
     amount_cents = _money_to_stripe_cents(amount.quantize(Decimal("0.01")))
 
     try:
+        # Standard Connect: charge on the connected account via stripe_account only.
+        # Do not pass on_behalf_of — Stripe rejects it when set to the same Standard acct.
+        # Restrict to card so confirm=True does not require a return_url for redirects.
         pi = stripe.PaymentIntent.create(
             amount=amount_cents,
             currency=currency,
             payment_method=pm_row.stripe_pm_id,
             confirm=True,
-            on_behalf_of=acct,
+            payment_method_types=["card"],
             stripe_account=acct,
             api_key=settings.stripe_secret_key.strip(),
         )

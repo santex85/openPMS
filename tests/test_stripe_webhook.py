@@ -163,6 +163,7 @@ def test_webhook_disabled_without_secret_returns_503(
     client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+    monkeypatch.delenv("REQUIRE_STRIPE_WEBHOOK_SECRET", raising=False)
     clear_settings_cache()
     r = client.post(
         "/webhooks/stripe",
@@ -170,6 +171,44 @@ def test_webhook_disabled_without_secret_returns_503(
         headers={"Stripe-Signature": "t=1,v1=x"},
     )
     assert r.status_code == 503, r.text
+
+
+def test_require_stripe_webhook_secret_fail_fast_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import (
+        Settings,
+        ensure_stripe_webhook_secret_if_required,
+    )
+
+    monkeypatch.setenv("REQUIRE_STRIPE_WEBHOOK_SECRET", "true")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "")
+    monkeypatch.setenv(
+        "JWT_SECRET",
+        "ci-jwt-secret-key-at-least-32-characters!!",
+    )
+    clear_settings_cache()
+    settings = Settings()
+    with pytest.raises(ValueError, match="STRIPE_WEBHOOK_SECRET is required"):
+        ensure_stripe_webhook_secret_if_required(settings)
+
+
+def test_require_stripe_webhook_secret_noop_when_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import (
+        Settings,
+        ensure_stripe_webhook_secret_if_required,
+    )
+
+    monkeypatch.setenv("REQUIRE_STRIPE_WEBHOOK_SECRET", "false")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "")
+    monkeypatch.setenv(
+        "JWT_SECRET",
+        "ci-jwt-secret-key-at-least-32-characters!!",
+    )
+    clear_settings_cache()
+    ensure_stripe_webhook_secret_if_required(Settings())
 
 
 def test_webhook_invalid_signature_returns_400(

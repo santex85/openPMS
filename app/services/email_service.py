@@ -18,9 +18,11 @@ from app.integrations.resend.client import send_email
 from app.integrations.resend.renderer import render_email
 from app.models.bookings.booking import Booking
 from app.models.bookings.guest import Guest
+from app.models.auth.user import User
 from app.models.core.property import Property
 from app.models.core.room import Room
 from app.models.core.room_type import RoomType
+from app.models.core.tenant import Tenant
 from app.models.notifications.email_log import EmailLog
 from app.models.rates.rate_plan import RatePlan
 from app.services.channex_booking_service import ChannexIngestResult
@@ -563,3 +565,120 @@ async def dispatch_channex_booking_emails(
             ingest_out.tenant_id,
             ingest_out.email_cancellation_booking_id,
         )
+
+
+async def _night_audit_sent_for_local_day(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_id: UUID,
+    *,
+    day_start_utc: datetime,
+    day_end_utc: datetime,
+) -> bool:
+    """True if a successful night_audit email was already logged in the property-local day."""
+    existing = await session.scalar(
+        select(EmailLog.id)
+        .where(
+            EmailLog.tenant_id == tenant_id,
+            EmailLog.property_id == property_id,
+            EmailLog.template_name == "night_audit",
+            EmailLog.status == "sent",
+            EmailLog.sent_at >= day_start_utc,
+            EmailLog.sent_at < day_end_utc,
+        )
+        .limit(1),
+    )
+    return existing is not None
+
+
+async def resolve_night_audit_recipients(
+    session: AsyncSession,
+    tenant_id: UUID,
+) -> list[str]:
+    """Active owner user emails, falling back to tenant billing_email."""
+    owners = (
+        await session.scalars(
+            select(User.email).where(
+                User.tenant_id == tenant_id,
+                User.role == "owner",
+                User.is_active.is_(True),
+            ),
+        )
+    ).all()
+    emails = sorted({e.strip() for e in owners if e and e.strip()})
+    if emails:
+        return emails
+    tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if tenant is None:
+        return []
+    billing = (tenant.billing_email or "").strip()
+    return [billing] if billing else []
+
+
+async def send_night_audit_email(
+    session: AsyncSession,
+    tenant_id: UUID,
+    property_: Property,
+    *,
+    audit_date: date,
+    arrivals: int,
+    departures: int,
+    no_shows: int,
+    auto_no_shows: int,
+    payments_total: str,
+    unpaid_folios: list[dict[str, str]],
+    day_start_utc: datetime,
+    day_end_utc: datetime,
+) -> bool:
+    """
+    Send night audit summary to property owners (or billing_email).
+
+    Returns True if at least one email was sent; False if skipped (dedup / no recipient).
+    """
+    if await _night_audit_sent_for_local_day(
+        session,
+        tenant_id,
+        property_.id,
+        day_start_utc=day_start_utc,
+        day_end_utc=day_end_utc,
+    ):
+        return False
+    recipients = await resolve_night_audit_recipients(session, tenant_id)
+    if not recipients:
+        log.warning(
+            "night_audit_email_no_recipient",
+            tenant_id=str(tenant_id),
+            property_id=str(property_.id),
+        )
+        return False
+    ctx: dict[str, Any] = {
+        "audit_date": audit_date.isoformat(),
+        "arrivals": arrivals,
+        "departures": departures,
+        "no_shows": no_shows,
+        "auto_no_shows": auto_no_shows,
+        "payments_total": payments_total,
+        "currency": property_.currency,
+        "unpaid_folios": unpaid_folios,
+        "property": {
+            "name": property_.name,
+            "address": "",
+            "phone": "",
+        },
+    }
+    html = render_email("night_audit.html", ctx)
+    subject = f"Night audit — {property_.name} — {audit_date.isoformat()}"
+    sent_any = False
+    for to in recipients:
+        await send_booking_email(
+            session,
+            tenant_id,
+            to,
+            subject,
+            html,
+            property_id=property_.id,
+            booking_id=None,
+            template_name="night_audit",
+        )
+        sent_any = True
+    return sent_any

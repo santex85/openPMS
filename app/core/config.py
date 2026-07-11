@@ -164,11 +164,27 @@ class Settings(BaseSettings):
             "When empty the endpoint returns 503; events are verified via construct_event."
         ),
     )
+    require_stripe_webhook_secret: bool = Field(
+        default=False,
+        description=(
+            "When true, refuse startup if stripe_webhook_secret is empty. "
+            "Enable on staging/production; leave false for local/dev/tests."
+        ),
+    )
     migration_rate_limit_key: str = Field(
         default="",
         description=(
             "When set, requests bearing header X-OpenPMS-Migration-Key with this value "
             "skip per-route SlowAPI limits (migration CLI bulk import only)."
+        ),
+    )
+    night_audit_hour: int = Field(
+        default=3,
+        ge=0,
+        le=23,
+        description=(
+            "Property-local hour (0–23) when night audit runs. "
+            "Hourly Beat fanout enqueues each property whose local hour matches."
         ),
     )
     resend_api_key: str = Field(
@@ -240,6 +256,18 @@ def ensure_jwt_secret_not_weak(settings: Settings) -> None:
         msg = (
             "JWT_SECRET must not use a known weak/default value. "
             "Generate a strong secret (see scripts/generate-secrets.sh)."
+        )
+        raise ValueError(msg)
+
+
+def ensure_stripe_webhook_secret_if_required(settings: Settings) -> None:
+    """Refuse startup when require_stripe_webhook_secret is set and secret is empty."""
+    if not settings.require_stripe_webhook_secret:
+        return
+    if not (settings.stripe_webhook_secret or "").strip():
+        msg = (
+            "STRIPE_WEBHOOK_SECRET is required when REQUIRE_STRIPE_WEBHOOK_SECRET=true "
+            "(set the whsec_... from Stripe Dashboard or `stripe listen`)."
         )
         raise ValueError(msg)
 

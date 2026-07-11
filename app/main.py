@@ -40,6 +40,7 @@ from app.api.routes import (
     nightly_rates,
     properties,
     rate_plans,
+    reports,
     room_types,
     rooms,
     stripe_connect,
@@ -48,7 +49,11 @@ from app.api.routes import (
     unpaid_folio_summary,
     webhooks,
 )
-from app.core.config import ensure_jwt_secret_not_weak, get_settings
+from app.core.config import (
+    ensure_jwt_secret_not_weak,
+    ensure_stripe_webhook_secret_if_required,
+    get_settings,
+)
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
 from app.core.sentry import init_sentry
@@ -135,6 +140,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     init_sentry(settings)
     ensure_jwt_secret_not_weak(settings)
+    ensure_stripe_webhook_secret_if_required(settings)
     log = structlog.get_logger()
     if not settings.refresh_cookie_secure:
         log.warning(
@@ -318,6 +324,7 @@ def create_app() -> FastAPI:
         prefix="/properties",
         tags=["properties"],
     )
+    application.include_router(reports.router)
     application.include_router(
         country_packs.router,
         prefix="/country-packs",

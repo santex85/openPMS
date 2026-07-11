@@ -31,5 +31,8 @@ htmlcov/
 *.log
 *.sqlite3
 
+# Local acceptance artifacts (PDF invoice sample from weasyprint checks)
+/invoice.pdf
+
 # Cursor workspace metadata (rules stay in .cursorrules at repo root)
 .cursor/

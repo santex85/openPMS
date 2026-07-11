@@ -259,9 +259,15 @@ def test_charge_success_folio_stripe_source(
         )
     pm_id = pm.json()["id"]
     pi = SimpleNamespace(id="pi_test_ok_1")
+    create_kwargs: dict = {}
+
+    def _capture_create(**kwargs: object) -> SimpleNamespace:
+        create_kwargs.update(kwargs)
+        return pi
+
     with patch(
         "app.services.stripe_payment_service.stripe.PaymentIntent.create",
-        return_value=pi,
+        side_effect=_capture_create,
     ):
         r = client.post(
             f"/bookings/{bid}/stripe/charge",
@@ -271,6 +277,9 @@ def test_charge_success_folio_stripe_source(
     assert r.status_code == 201
     assert r.json()["status"] == "succeeded"
     assert r.json()["stripe_charge_id"] == "pi_test_ok_1"
+    assert "on_behalf_of" not in create_kwargs
+    assert create_kwargs.get("stripe_account") == "acct_test_connected_openpms"
+    assert create_kwargs.get("payment_method_types") == ["card"]
 
     url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
     assert url

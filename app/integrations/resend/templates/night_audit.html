@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<p style="margin:0 0 12px 0;">Night audit summary for <strong>{{ property.name }}</strong>.</p>
+<p style="margin:0 0 12px 0;"><strong>Audit date:</strong> {{ audit_date }}</p>
+<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:0 0 16px 0;">
+  <tr>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">Arrivals</td>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;"><strong>{{ arrivals }}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">Departures</td>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;"><strong>{{ departures }}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">No-shows</td>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;"><strong>{{ no_shows }}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">Payments ({{ currency }})</td>
+    <td style="padding:6px 0;border-bottom:1px solid #e5e7eb;text-align:right;"><strong>{{ payments_total }}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;">Auto no-shows marked tonight</td>
+    <td style="padding:6px 0;text-align:right;"><strong>{{ auto_no_shows }}</strong></td>
+  </tr>
+</table>
+{% if unpaid_folios and unpaid_folios|length > 0 %}
+<p style="margin:0 0 8px 0;"><strong>Unpaid folios (departed {{ audit_date }}):</strong></p>
+<ul style="margin:0;padding-left:18px;">
+  {% for row in unpaid_folios %}
+  <li style="margin:0 0 4px 0;">{{ row.guest_name }} — {{ row.balance }} {{ currency }}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p style="margin:0;">No unpaid folios for guests who departed on {{ audit_date }}.</p>
+{% endif %}
+{% endblock %}

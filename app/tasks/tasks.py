@@ -8,4 +8,5 @@ from app.tasks import channex_booking_retry as _channex_booking_retry  # noqa: F
 from app.tasks import channex_incremental_ari as _channex_incremental_ari  # noqa: F401
 from app.tasks import channex_webhook_task as _channex_webhook_task  # noqa: F401
 from app.tasks import email_tasks as _email_tasks  # noqa: F401
+from app.tasks import night_audit as _night_audit  # noqa: F401
 from app.tasks import ping as _ping  # noqa: F401

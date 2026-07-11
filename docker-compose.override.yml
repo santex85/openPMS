@@ -6,9 +6,15 @@ services:
     build:
       context: .
       target: dev
+    # `dev` stage has no CMD (runtime stage does); keep the same start path as production.
+    command: ["bash", "scripts/start.sh"]
     ports:
       - "${API_PORT:-8000}:8000"
+    environment:
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
     volumes:
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
       - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./scripts:/app/scripts:ro

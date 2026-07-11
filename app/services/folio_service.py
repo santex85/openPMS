@@ -1,5 +1,6 @@
 """Folio listing, balance, posting charges/payments, reversal."""
 
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bookings.booking import Booking
+from app.models.bookings.booking_line import BookingLine
 from app.models.bookings.folio_transaction import FolioTransaction
 from app.models.bookings.guest import Guest
 from app.services.audit_service import record_audit
@@ -103,9 +105,16 @@ async def list_unpaid_folio_summary_for_property(
     session: AsyncSession,
     tenant_id: UUID,
     property_id: UUID,
+    *,
+    departed_on: date | None = None,
+    checked_out_only: bool = False,
 ) -> list[tuple[UUID, Decimal, str, str]]:
     """
     Bookings under ``property_id`` whose folio balance (charges − payments) is strictly positive.
+
+    When ``departed_on`` is set, only include bookings whose last night is the day before
+    ``departed_on`` (same convention as dashboard departures). When ``checked_out_only``
+    is true, further restrict to ``status='checked_out'``.
 
     Returns ``(booking_id, balance, guest_first_name, guest_last_name)`` tuples.
     """
@@ -142,6 +151,25 @@ async def list_unpaid_folio_summary_for_property(
         .having(balance_expr > 0)
     ).subquery()
 
+    filters = [
+        Booking.tenant_id == tenant_id,
+        Booking.property_id == property_id,
+    ]
+    if checked_out_only:
+        filters.append(Booking.status == "checked_out")
+    if departed_on is not None:
+        last_night = departed_on - timedelta(days=1)
+        max_date_subq = (
+            select(func.max(BookingLine.date))
+            .where(
+                BookingLine.tenant_id == Booking.tenant_id,
+                BookingLine.booking_id == Booking.id,
+            )
+            .correlate(Booking)
+            .scalar_subquery()
+        )
+        filters.append(max_date_subq == last_night)
+
     stmt = (
         select(Booking.id, bal_sq.c.balance, Guest.first_name, Guest.last_name)
         .select_from(Booking)
@@ -150,10 +178,7 @@ async def list_unpaid_folio_summary_for_property(
             Guest,
             (Guest.tenant_id == Booking.tenant_id) & (Guest.id == Booking.guest_id),
         )
-        .where(
-            Booking.tenant_id == tenant_id,
-            Booking.property_id == property_id,
-        )
+        .where(*filters)
         .order_by(bal_sq.c.balance.desc())
     )
     result = await session.execute(stmt)

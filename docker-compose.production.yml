@@ -98,6 +98,32 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  celery-beat:
+    build: .
+    restart: unless-stopped
+    command: celery -A app.worker:celery_app beat --loglevel=info
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-openpms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-openpms}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   backup:
     build:
       context: .

@@ -108,6 +108,7 @@ def tenant_isolation_extended_scenario(db_engine: object) -> dict:
                     status="confirmed",
                     source="test",
                     total_amount=Decimal("100.00"),
+                    notes="tenant-a-secret-notes",
                 )
                 session.add(booking)
                 await session.flush()
@@ -308,5 +309,38 @@ def test_tenant_b_cannot_see_tenant_a_channex_status(
         "/channex/status",
         headers=auth_headers(tenant_b, role="owner"),
         params={"property_id": str(pid)},
+    )
+    assert r.status_code == 404
+
+
+def test_tenant_b_cannot_get_tenant_a_booking_with_notes(
+    client,
+    tenant_isolation_extended_scenario: dict,
+    auth_headers,
+) -> None:
+    """booking.notes is RLS-scoped via bookings; other tenant must not read the row."""
+    tenant_a: UUID = tenant_isolation_extended_scenario["tenant_a"]
+    tenant_b: UUID = tenant_isolation_extended_scenario["tenant_b"]
+    bid: UUID = tenant_isolation_extended_scenario["booking_id"]
+    ok = client.get(f"/bookings/{bid}", headers=auth_headers(tenant_a, role="owner"))
+    assert ok.status_code == 200
+    assert ok.json().get("notes") == "tenant-a-secret-notes"
+    denied = client.get(
+        f"/bookings/{bid}", headers=auth_headers(tenant_b, role="owner")
+    )
+    assert denied.status_code == 404
+
+
+def test_tenant_b_cannot_patch_tenant_a_booking_notes(
+    client,
+    tenant_isolation_extended_scenario: dict,
+    auth_headers,
+) -> None:
+    tenant_b: UUID = tenant_isolation_extended_scenario["tenant_b"]
+    bid: UUID = tenant_isolation_extended_scenario["booking_id"]
+    r = client.patch(
+        f"/bookings/{bid}",
+        headers=auth_headers(tenant_b, role="owner"),
+        json={"notes": "cross-tenant-overwrite"},
     )
     assert r.status_code == 404

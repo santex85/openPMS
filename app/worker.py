@@ -39,4 +39,8 @@ celery_app.conf.beat_schedule = {
         "task": "send_checkin_reminders",
         "schedule": crontab(hour=9, minute=0),
     },
+    "night-audit-hourly": {
+        "task": "night_audit_fanout",
+        "schedule": crontab(minute=0),
+    },
 }
